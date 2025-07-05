@@ -40,7 +40,10 @@
       font-size: 16px;
       cursor: pointer;
     }
-    /* Ocultar columnas de costo */
+
+    /* Ocultar columnas específicas visualmente */
+    th:nth-child(3), td:nth-child(3), /* Entradas */
+    th:nth-child(4), td:nth-child(4), /* Salidas */
     th:nth-child(6), td:nth-child(6), /* Costo unitario */
     th:nth-child(7), td:nth-child(7), /* Subtotal */
     th:nth-child(8), td:nth-child(8), /* Sucursal destino */
@@ -60,7 +63,7 @@
   <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
 </head>
 <body>
-  <h2>Reporte de Inventario - Cigarro (Sin Costos)</h2>
+  <h2>Reporte de Inventario - Cigarro (Sin Costos ni Movimientos)</h2>
 
   <table id="tablaInventario">
     <thead>
@@ -160,13 +163,13 @@
         row.innerHTML = `
           <td>${codigo}</td>
           <td>${producto.descripcion}</td>
-          <td>${entrada.cantidad}</td>
-          <td>${salida.cantidad}</td>
+          <td>${entrada.cantidad}</td>  <!-- oculto -->
+          <td>${salida.cantidad}</td>   <!-- oculto -->
           <td class="${stock >= 0 ? 'positivo' : 'negativo'}">${stock}</td>
-          <td>0</td>
-          <td>0</td>
-          <td>${salida.sucursal}</td>
-          <td>${ultimaFecha !== "0000-00-00" ? formatearFecha(ultimaFecha) : "-"}</td>
+          <td>0</td>  <!-- Costo Unitario, oculto -->
+          <td>0</td>  <!-- Subtotal, oculto -->
+          <td>${salida.sucursal}</td>  <!-- oculto -->
+          <td>${ultimaFecha !== "0000-00-00" ? formatearFecha(ultimaFecha) : "-"}</td> <!-- oculto -->
         `;
         tablaBody.appendChild(row);
       }
