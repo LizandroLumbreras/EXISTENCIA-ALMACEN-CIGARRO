@@ -5,60 +5,22 @@
   <title>Reporte de Inventario - Sin Costos</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      background: #f4f6f9;
-      padding: 20px;
-    }
-    h2 {
-      text-align: center;
-    }
-    table {
-      background-color: rgba(255, 255, 255, 0.85);
-      border-collapse: collapse;
-      width: 100%;
-      margin-top: 20px;
-    }
-    th, td {
-      border: 1px solid #ccc;
-      padding: 8px;
-      text-align: left;
-    }
-    th {
-      background: #007bff;
-      color: white;
-    }
-    .positivo {
-      color: green;
-    }
-    .negativo {
-      color: red;
-    }
-    button {
-      margin-top: 20px;
-      padding: 10px 20px;
-      font-size: 16px;
-      cursor: pointer;
-    }
-
-    /* Ocultar columnas específicas visualmente */
-    th:nth-child(3), td:nth-child(3), /* Entradas */
-    th:nth-child(4), td:nth-child(4), /* Salidas */
-    th:nth-child(6), td:nth-child(6), /* Costo unitario */
-    th:nth-child(7), td:nth-child(7), /* Subtotal */
-    th:nth-child(8), td:nth-child(8), /* Sucursal destino */
-    th:nth-child(9), td:nth-child(9)  /* Última fecha */
-    {
-      display: none;
-    }
-
-    tbody tr:nth-child(even) {
-      background-color: #f0f0f0;
-    }
-
-    tbody tr:nth-child(odd) {
-      background-color: #ffffff;
-    }
+    body{font-family:Arial,sans-serif;background:#f4f6f9;padding:20px}
+    h2{text-align:center}
+    table{background:rgba(255,255,255,.85);border-collapse:collapse;width:100%;margin-top:20px}
+    th,td{border:1px solid #ccc;padding:8px;text-align:left}
+    th{background:#007bff;color:#fff}
+    .positivo{color:green}.negativo{color:red}
+    button{margin-top:20px;padding:10px 20px;font-size:16px;cursor:pointer}
+    /* Ocultar columnas */
+    th:nth-child(3),td:nth-child(3),
+    th:nth-child(4),td:nth-child(4),
+    th:nth-child(6),td:nth-child(6),
+    th:nth-child(7),td:nth-child(7),
+    th:nth-child(8),td:nth-child(8),
+    th:nth-child(9),td:nth-child(9){display:none}
+    tbody tr:nth-child(even){background:#f0f0f0}
+    tbody tr:nth-child(odd){background:#fff}
   </style>
   <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
 </head>
@@ -100,84 +62,127 @@
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
 
-    const entradasRef = collection(db, "almacenes", "almacen_cigarro", "entradas");
-    const salidasRef = collection(db, "almacenes", "almacen_cigarro", "salidas");
+    const entradasRef  = collection(db, "almacenes", "almacen_cigarro", "entradas");
+    const salidasRef   = collection(db, "almacenes", "almacen_cigarro", "salidas");
     const productosRef = collection(db, "productos");
     const tablaBody = document.querySelector("#tablaInventario tbody");
 
-    const mapEntradas = new Map();
-    const mapSalidas = new Map();
-    const mapProductos = new Map();
+    const mapEntradas  = new Map(); // codigo -> {cantidad, ultimaFecha}
+    const mapSalidas   = new Map(); // codigo -> {cantidad, sucursal, ultimaFecha}
+    const mapProductos = new Map(); // codigo -> {descripcion}
 
-    function formatearFecha(fechaStr) {
-      const fecha = new Date(fechaStr);
-      return `${fecha.getDate().toString().padStart(2, '0')}/${(fecha.getMonth()+1).toString().padStart(2, '0')}/${fecha.getFullYear()}`;
+    // Utilidades de fecha (acepta Firestore timestamp o string)
+    function toDate(any) {
+      if (!any) return null;
+      if (typeof any === 'object' && 'seconds' in any) return new Date(any.seconds * 1000);
+      const d = new Date(any);
+      return isNaN(d.getTime()) ? null : d;
     }
+    const fmt = d => !d ? "-" : `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
 
-    async function cargarDatos() {
+    function keepMaxDate(a,b){ const da=toDate(a), db=toDate(b); if(!da) return db; if(!db) return da; return (db>da)?db:da; }
+
+    async function cargarDatos(){
       const [entradasSnap, salidasSnap, productosSnap] = await Promise.all([
         getDocs(entradasRef),
         getDocs(salidasRef),
         getDocs(productosRef)
       ]);
 
-      productosSnap.forEach(doc => {
-        const data = doc.data();
-        mapProductos.set(doc.id, {
-          descripcion: data.Concepto || "-",
-        });
+      // 1) Catálogo de productos (por codigoBarra y por ID como respaldo)
+      productosSnap.forEach(doc=>{
+        const p = doc.data();
+        const desc = (p.concepto || p.Concepto || "-").toString();
+        const codB = (p.codigoBarra || p.CodigoBarra || "").toString();
+        if (codB) mapProductos.set(codB, { descripcion: desc });
+        // respaldo por ID (por si en movimientos usan id en vez de codigoBarra)
+        if (!mapProductos.has(doc.id)) mapProductos.set(doc.id, { descripcion: desc });
       });
 
-      entradasSnap.forEach(doc => {
-        const data = doc.data();
-        const key = data.codigo;
-        if (!mapEntradas.has(key)) {
-          mapEntradas.set(key, { cantidad: 0, ultimaFecha: data.fecha });
+      // 2) ENTRADAS: soportar doc con productos[] o doc "por línea"
+      entradasSnap.forEach(doc=>{
+        const m = doc.data();
+        const fechaDoc = m.timestamp || m.fecha;
+        if (Array.isArray(m.productos)) {
+          m.productos.forEach(it=>{
+            const codigo = (it.codigo || it.codigoBarra || it.id || "").toString();
+            if(!codigo) return;
+            const cant = Number(it.cantidad || 0);
+            const prev = mapEntradas.get(codigo) || { cantidad: 0, ultimaFecha: null };
+            prev.cantidad += cant;
+            prev.ultimaFecha = keepMaxDate(prev.ultimaFecha, fechaDoc);
+            mapEntradas.set(codigo, prev);
+          });
+        } else {
+          const codigo = (m.codigo || m.codigoBarra || "").toString();
+          if(!codigo) return;
+          const cant = Number(m.cantidad || 0);
+          const prev = mapEntradas.get(codigo) || { cantidad: 0, ultimaFecha: null };
+          prev.cantidad += cant;
+          prev.ultimaFecha = keepMaxDate(prev.ultimaFecha, fechaDoc);
+          mapEntradas.set(codigo, prev);
         }
-        const obj = mapEntradas.get(key);
-        obj.cantidad += data.cantidad || 0;
-        if (data.fecha > obj.ultimaFecha) obj.ultimaFecha = data.fecha;
       });
 
-      salidasSnap.forEach(doc => {
-        const data = doc.data();
-        const key = data.codigo;
-        if (!mapSalidas.has(key)) {
-          mapSalidas.set(key, { cantidad: 0, sucursal: data.sucursal || "-", ultimaFecha: data.fecha });
+      // 3) SALIDAS: soportar doc con productos[] o doc "por línea"
+      salidasSnap.forEach(doc=>{
+        const m = doc.data();
+        const fechaDoc = m.timestamp || m.fecha;
+        const suc = m.destino || m.sucursal || "-";
+        if (Array.isArray(m.productos)) {
+          m.productos.forEach(it=>{
+            const codigo = (it.codigo || it.codigoBarra || it.id || "").toString();
+            if(!codigo) return;
+            const cant = Number(it.cantidad || 0);
+            const prev = mapSalidas.get(codigo) || { cantidad: 0, sucursal: "-", ultimaFecha: null };
+            prev.cantidad += cant;
+            prev.sucursal = prev.sucursal === "-" ? suc : prev.sucursal; // conserva la primera / no crítica
+            prev.ultimaFecha = keepMaxDate(prev.ultimaFecha, fechaDoc);
+            mapSalidas.set(codigo, prev);
+          });
+        } else {
+          const codigo = (m.codigo || m.codigoBarra || "").toString();
+          if(!codigo) return;
+          const cant = Number(m.cantidad || 0);
+          const prev = mapSalidas.get(codigo) || { cantidad: 0, sucursal: "-", ultimaFecha: null };
+          prev.cantidad += cant;
+          prev.sucursal = prev.sucursal === "-" ? suc : prev.sucursal;
+          prev.ultimaFecha = keepMaxDate(prev.ultimaFecha, fechaDoc);
+          mapSalidas.set(codigo, prev);
         }
-        const obj = mapSalidas.get(key);
-        obj.cantidad += data.cantidad || 0;
-        if (data.fecha > obj.ultimaFecha) obj.ultimaFecha = data.fecha;
       });
 
-      const codigos = [...new Set([...mapEntradas.keys(), ...mapSalidas.keys()])].sort();
+      // 4) Unir códigos y pintar
+      const codigos = [...new Set([...mapEntradas.keys(), ...mapSalidas.keys()])]
+        .sort((a,b)=> String(a).localeCompare(String(b), 'es', {numeric:true,sensitivity:'base'}));
 
-      for (const codigo of codigos) {
-        const entrada = mapEntradas.get(codigo) || { cantidad: 0, ultimaFecha: "0000-00-00" };
-        const salida = mapSalidas.get(codigo) || { cantidad: 0, sucursal: "-", ultimaFecha: "0000-00-00" };
-        const producto = mapProductos.get(codigo) || { descripcion: "-" };
-        const stock = entrada.cantidad - salida.cantidad;
-        const ultimaFecha = entrada.ultimaFecha > salida.ultimaFecha ? entrada.ultimaFecha : salida.ultimaFecha;
+      for (const codigo of codigos){
+        const ent = mapEntradas.get(codigo) || { cantidad:0, ultimaFecha:null };
+        const sal = mapSalidas.get(codigo) || { cantidad:0, sucursal:"-", ultimaFecha:null };
+        const prod = mapProductos.get(codigo) || { descripcion:"-" };
+        const stock = (ent.cantidad||0) - (sal.cantidad||0);
+        const uFecha = keepMaxDate(ent.ultimaFecha, sal.ultimaFecha);
 
-        const row = document.createElement("tr");
-        row.innerHTML = `
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
           <td>${codigo}</td>
-          <td>${producto.descripcion}</td>
-          <td>${entrada.cantidad}</td>  <!-- oculto -->
-          <td>${salida.cantidad}</td>   <!-- oculto -->
-          <td class="${stock >= 0 ? 'positivo' : 'negativo'}">${stock}</td>
-          <td>0</td>  <!-- Costo Unitario, oculto -->
-          <td>0</td>  <!-- Subtotal, oculto -->
-          <td>${salida.sucursal}</td>  <!-- oculto -->
-          <td>${ultimaFecha !== "0000-00-00" ? formatearFecha(ultimaFecha) : "-"}</td> <!-- oculto -->
+          <td>${prod.descripcion}</td>
+          <td>${ent.cantidad||0}</td>
+          <td>${sal.cantidad||0}</td>
+          <td class="${stock>=0?'positivo':'negativo'}">${stock}</td>
+          <td>0</td>
+          <td>0</td>
+          <td>${sal.sucursal || '-'}</td>
+          <td>${fmt(uFecha)}</td>
         `;
-        tablaBody.appendChild(row);
+        tablaBody.appendChild(tr);
       }
     }
 
     cargarDatos();
 
-    window.exportarExcel = function () {
+    // Excel
+    window.exportarExcel = function(){
       const tabla = document.getElementById("tablaInventario");
       const wb = XLSX.utils.book_new();
       const ws = XLSX.utils.table_to_sheet(tabla);
@@ -187,21 +192,16 @@
   </script>
 
   <script>
+    // Ocultar filas con stock 0 automáticamente
     document.addEventListener('DOMContentLoaded', () => {
       const observer = new MutationObserver(() => {
-        const rows = document.querySelectorAll("#tablaInventario tbody tr");
-        rows.forEach(row => {
+        document.querySelectorAll("#tablaInventario tbody tr").forEach(row=>{
           const stockCell = row.children[4];
-          if (stockCell && stockCell.textContent.trim() === "0") {
-            row.style.display = "none";
-          }
+          if (stockCell && stockCell.textContent.trim() === "0") row.style.display = "none";
         });
       });
-
       const target = document.querySelector("#tablaInventario tbody");
-      if (target) {
-        observer.observe(target, { childList: true });
-      }
+      if (target) observer.observe(target, { childList: true });
     });
   </script>
 </body>
