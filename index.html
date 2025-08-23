@@ -2,54 +2,164 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Reporte de Inventario - Sin Costos</title>
+  <title>Inventario – Almacén Cigarro (Sin costos)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <style>
-    body{font-family:Arial,sans-serif;background:#f4f6f9;padding:20px}
-    h2{text-align:center}
-    table{background:rgba(255,255,255,.85);border-collapse:collapse;width:100%;margin-top:20px}
-    th,td{border:1px solid #ccc;padding:8px;text-align:left}
-    th{background:#007bff;color:#fff}
-    .positivo{color:green}.negativo{color:red}
-    button{margin-top:20px;padding:10px 20px;font-size:16px;cursor:pointer}
-    /* Ocultar columnas */
-    th:nth-child(3),td:nth-child(3),
-    th:nth-child(4),td:nth-child(4),
-    th:nth-child(6),td:nth-child(6),
-    th:nth-child(7),td:nth-child(7),
-    th:nth-child(8),td:nth-child(8),
-    th:nth-child(9),td:nth-child(9){display:none}
-    tbody tr:nth-child(even){background:#f0f0f0}
-    tbody tr:nth-child(odd){background:#fff}
-  </style>
+  <!-- XLSX -->
   <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+  <style>
+    :root{
+      --grad-a:#00416A;
+      --grad-b:#E4E5E6;
+      --card-bg: rgba(255,255,255,.12);
+      --table-bg: rgba(255,255,255,.85);
+      --shadow: 0 10px 30px rgba(0,0,0,.25);
+      --radius: 16px;
+      --brand:#e60000;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0; min-height:100vh; padding:22px;
+      font-family: "Poppins", system-ui, Arial, sans-serif;
+      color:#111; position:relative;
+      background: linear-gradient(to right,var(--grad-a),var(--grad-b));
+    }
+    /* Marca de agua global */
+    body::before{
+      content:"";
+      position: fixed; inset: 0; z-index:0;
+      background: url('logo_proveedora.webp') no-repeat center center;
+      background-size: min(70vw, 1000px);
+      opacity:.07; pointer-events:none;
+      filter: saturate(1) contrast(1.05);
+    }
+    .wrap{
+      max-width:1200px; margin:auto; position:relative; z-index:1;
+    }
+    header.card{
+      background: var(--card-bg);
+      color:#fff;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 18px 20px;
+      backdrop-filter: blur(8px);
+      display:flex; align-items:center; justify-content:space-between; gap:16px;
+    }
+    .ttl{
+      margin:0; font-weight:700; letter-spacing:.3px;
+      text-shadow: 0 2px 10px rgba(0,0,0,.25);
+    }
+    .badge{
+      background:#fff; color:#111; border-radius:999px; padding:6px 10px; font-size:12px;
+      box-shadow:0 6px 18px rgba(0,0,0,.15);
+    }
+    .toolbar{
+      display:flex; gap:10px; flex-wrap:wrap;
+    }
+    .btn{
+      appearance:none; border:none; cursor:pointer;
+      background:#0c6cbd; color:#fff; border-radius:12px; padding:10px 14px;
+      font-weight:600; box-shadow:0 8px 18px rgba(12,108,189,.35);
+      transition: transform .05s ease, filter .15s ease;
+    }
+    .btn:hover{ filter:brightness(1.05) }
+    .btn:active{ transform: scale(.98) }
+    .ghost{
+      background:transparent; color:#fff; border:1px solid rgba(255,255,255,.6);
+      box-shadow:none;
+    }
+
+    .table-card{
+      margin-top:18px; padding:16px;
+      background: var(--card-bg);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+    }
+    .table-wrap{
+      background: var(--table-bg);
+      border-radius: 14px; overflow:auto;
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,.06);
+    }
+    table{
+      width:100%; border-collapse:collapse; min-width:900px;
+    }
+    th, td{
+      padding:10px 12px; border-bottom:1px solid #e6e6e6; text-align:left; font-size:14px;
+    }
+    thead th{
+      position:sticky; top:0; z-index:1;
+      background:#007bff; color:#fff; border-bottom:none;
+    }
+    tbody tr:nth-child(even){ background:#f7f7f7 }
+    tbody tr:hover{ background:rgba(0,0,0,.04) }
+
+    .positivo{ color: #16871a; font-weight:700 }
+    .negativo{ color: #c62828; font-weight:700 }
+
+    /* Ocultar columnas no visibles (pero útiles en Excel) */
+    th:nth-child(3), td:nth-child(3), /* Entradas */
+    th:nth-child(4), td:nth-child(4), /* Salidas consideradas */
+    th:nth-child(6), td:nth-child(6), /* Costo unitario */
+    th:nth-child(7), td:nth-child(7), /* Subtotal */
+    th:nth-child(8), td:nth-child(8), /* Sucursal destino */
+    th:nth-child(9), td:nth-child(9)  /* Última fecha */
+    { display:none }
+
+    .legend{
+      margin-top:8px; font-size:12px; color:#fff; opacity:.9
+    }
+
+    @media (max-width:720px){
+      .ttl{ font-size:16px }
+      .btn{ padding:9px 12px }
+      .badge{ display:none }
+    }
+  </style>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
-  <h2>Reporte de Inventario - Cigarro (Sin Costos ni Movimientos)</h2>
+  <div class="wrap">
+    <header class="card">
+      <h1 class="ttl">📦 Inventario – Almacén <span style="color:var(--brand)">CIGARRO</span></h1>
+      <div class="toolbar">
+        <span class="badge" id="resumenBadge">Cargando…</span>
+        <button class="btn ghost" id="btnRefrescar">Actualizar</button>
+        <button class="btn" onclick="exportarExcel()">Descargar Excel</button>
+      </div>
+    </header>
 
-  <table id="tablaInventario">
-    <thead>
-      <tr>
-        <th>Código</th>
-        <th>Descripción</th>
-        <th>Entradas</th>
-        <th>Salidas</th>
-        <th>Stock-Pieza</th>
-        <th>Costo Unitario</th>
-        <th>Subtotal</th>
-        <th>Sucursal destino</th>
-        <th>Última fecha</th>
-      </tr>
-    </thead>
-    <tbody></tbody>
-  </table>
+    <section class="table-card">
+      <div class="table-wrap">
+        <table id="tablaInventario">
+          <thead>
+            <tr>
+              <th>Código</th>
+              <th>Descripción</th>
+              <th>Entradas</th>
+              <th>Salidas</th>
+              <th>Stock-Pieza</th>
+              <th>Costo Unitario</th>
+              <th>Subtotal</th>
+              <th>Sucursal destino</th>
+              <th>Última fecha</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
 
-  <button onclick="exportarExcel()">Descargar Excel</button>
+      <div class="legend">
+        Regla: <b>Inventario = Entradas</b> menos <b>salidas desde la 3ª</b> (la 1ª y 2ª salida de cada producto se ignoran).
+      </div>
+    </section>
+  </div>
 
+  <!-- Firebase (modular v10) -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
     import { getFirestore, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
+    // 🔧 Config
     const firebaseConfig = {
       apiKey: "AIzaSyCK5nb6u2CGRJ8AB1aPlRn54b97bdeAFeM",
       authDomain: "inventariopv-643f1.firebaseapp.com",
@@ -59,111 +169,120 @@
       appId: "1:96242533231:web:aae75a18fbaf9840529e9a"
     };
 
+    // 🔌 Init
     const app = initializeApp(firebaseConfig);
-    const db = getFirestore(app);
+    const db  = getFirestore(app);
 
+    // 🔗 Rutas
     const entradasRef  = collection(db, "almacenes", "almacen_cigarro", "entradas");
     const salidasRef   = collection(db, "almacenes", "almacen_cigarro", "salidas");
     const productosRef = collection(db, "productos");
-    const tablaBody = document.querySelector("#tablaInventario tbody");
 
+    // 🧠 Mapas
     const mapEntradas  = new Map(); // codigo -> {cantidad, ultimaFecha}
-    const mapSalidas   = new Map(); // codigo -> {cantidad, sucursal, ultimaFecha}
+    const mapSalidas   = new Map(); // codigo -> {cantidad(solo desde 3ª), sucursal, ultimaFecha}
     const mapProductos = new Map(); // codigo -> {descripcion}
 
-    // Utilidades de fecha (acepta Firestore timestamp o string)
-    function toDate(any) {
-      if (!any) return null;
-      if (typeof any === 'object' && 'seconds' in any) return new Date(any.seconds * 1000);
-      const d = new Date(any);
-      return isNaN(d.getTime()) ? null : d;
+    const $tbody   = document.querySelector("#tablaInventario tbody");
+    const $badge   = document.getElementById("resumenBadge");
+    const $refresh = document.getElementById("btnRefrescar");
+
+    // ⏱️ util fechas
+    function toDate(any){
+      if(!any) return null;
+      if (typeof any === "object" && "seconds" in any) return new Date(any.seconds*1000);
+      const d = new Date(any); return isNaN(d.getTime()) ? null : d;
     }
     const fmt = d => !d ? "-" : `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
-
-    function keepMaxDate(a,b){ const da=toDate(a), db=toDate(b); if(!da) return db; if(!db) return da; return (db>da)?db:da; }
+    const keepMaxDate=(a,b)=>{ const da=toDate(a), db=toDate(b); if(!da) return db; if(!db) return da; return (db>da)?db:da; };
 
     async function cargarDatos(){
+      $badge.textContent = "Cargando…";
+      $tbody.innerHTML = "";
+
       const [entradasSnap, salidasSnap, productosSnap] = await Promise.all([
         getDocs(entradasRef),
         getDocs(salidasRef),
         getDocs(productosRef)
       ]);
 
-      // 1) Catálogo de productos (por codigoBarra y por ID como respaldo)
+      // 1) Catálogo productos -> map por codigoBarra y respaldo por ID
       productosSnap.forEach(doc=>{
         const p = doc.data();
         const desc = (p.concepto || p.Concepto || "-").toString();
         const codB = (p.codigoBarra || p.CodigoBarra || "").toString();
         if (codB) mapProductos.set(codB, { descripcion: desc });
-        // respaldo por ID (por si en movimientos usan id en vez de codigoBarra)
         if (!mapProductos.has(doc.id)) mapProductos.set(doc.id, { descripcion: desc });
       });
 
-      // 2) ENTRADAS: soportar doc con productos[] o doc "por línea"
+      // 2) ENTRADAS (doc con productos[] o por línea)
       entradasSnap.forEach(doc=>{
         const m = doc.data();
         const fechaDoc = m.timestamp || m.fecha;
-        if (Array.isArray(m.productos)) {
-          m.productos.forEach(it=>{
-            const codigo = (it.codigo || it.codigoBarra || it.id || "").toString();
-            if(!codigo) return;
-            const cant = Number(it.cantidad || 0);
-            const prev = mapEntradas.get(codigo) || { cantidad: 0, ultimaFecha: null };
-            prev.cantidad += cant;
-            prev.ultimaFecha = keepMaxDate(prev.ultimaFecha, fechaDoc);
-            mapEntradas.set(codigo, prev);
-          });
-        } else {
-          const codigo = (m.codigo || m.codigoBarra || "").toString();
+        const items = Array.isArray(m.productos) ? m.productos : [m];
+        items.forEach(it=>{
+          const codigo = (it.codigo || it.codigoBarra || it.id || "").toString();
           if(!codigo) return;
-          const cant = Number(m.cantidad || 0);
-          const prev = mapEntradas.get(codigo) || { cantidad: 0, ultimaFecha: null };
+          const cant = Number(it.cantidad || 0);
+          const prev = mapEntradas.get(codigo) || { cantidad:0, ultimaFecha:null };
           prev.cantidad += cant;
           prev.ultimaFecha = keepMaxDate(prev.ultimaFecha, fechaDoc);
           mapEntradas.set(codigo, prev);
-        }
+        });
       });
 
-      // 3) SALIDAS: soportar doc con productos[] o doc "por línea"
+      // 3) SALIDAS agrupadas por código para aplicar la regla (ignorar 1ª y 2ª)
+      const salidasPorCodigo = {};
       salidasSnap.forEach(doc=>{
         const m = doc.data();
         const fechaDoc = m.timestamp || m.fecha;
         const suc = m.destino || m.sucursal || "-";
-        if (Array.isArray(m.productos)) {
-          m.productos.forEach(it=>{
-            const codigo = (it.codigo || it.codigoBarra || it.id || "").toString();
-            if(!codigo) return;
-            const cant = Number(it.cantidad || 0);
-            const prev = mapSalidas.get(codigo) || { cantidad: 0, sucursal: "-", ultimaFecha: null };
-            prev.cantidad += cant;
-            prev.sucursal = prev.sucursal === "-" ? suc : prev.sucursal; // conserva la primera / no crítica
-            prev.ultimaFecha = keepMaxDate(prev.ultimaFecha, fechaDoc);
-            mapSalidas.set(codigo, prev);
-          });
-        } else {
-          const codigo = (m.codigo || m.codigoBarra || "").toString();
+        const items = Array.isArray(m.productos) ? m.productos : [m];
+        items.forEach(it=>{
+          const codigo = (it.codigo || it.codigoBarra || it.id || "").toString();
           if(!codigo) return;
-          const cant = Number(m.cantidad || 0);
-          const prev = mapSalidas.get(codigo) || { cantidad: 0, sucursal: "-", ultimaFecha: null };
-          prev.cantidad += cant;
-          prev.sucursal = prev.sucursal === "-" ? suc : prev.sucursal;
-          prev.ultimaFecha = keepMaxDate(prev.ultimaFecha, fechaDoc);
-          mapSalidas.set(codigo, prev);
-        }
+          const cant = Number(it.cantidad || 0);
+          (salidasPorCodigo[codigo] ??= []).push({ cantidad:cant, sucursal:suc, fecha:fechaDoc });
+        });
+      });
+
+      Object.keys(salidasPorCodigo).forEach(codigo=>{
+        const arr = salidasPorCodigo[codigo];
+        // Ordenar cronológicamente por fecha
+        arr.sort((a,b)=> (toDate(a.fecha) - toDate(b.fecha)));
+
+        let total = 0;
+        let ultimaFecha = null;
+        let sucursal = "-";
+
+        arr.forEach((mov, i)=>{
+          if (i < 2) return; // Ignora 1ª y 2ª salida
+          total += mov.cantidad;
+          sucursal = mov.sucursal || sucursal;
+          ultimaFecha = keepMaxDate(ultimaFecha, mov.fecha);
+        });
+
+        mapSalidas.set(codigo, { cantidad: total, sucursal, ultimaFecha });
       });
 
       // 4) Unir códigos y pintar
-      const codigos = [...new Set([...mapEntradas.keys(), ...mapSalidas.keys()])]
-        .sort((a,b)=> String(a).localeCompare(String(b), 'es', {numeric:true,sensitivity:'base'}));
+      const codigos = [...new Set([...mapEntradas.keys(), ...Object.keys(salidasPorCodigo)])]
+        .sort((a,b)=> String(a).localeCompare(String(b),'es',{numeric:true,sensitivity:'base'}));
 
-      for (const codigo of codigos){
+      let totItems = 0, totPos = 0, totNeg = 0;
+
+      codigos.forEach(codigo=>{
         const ent = mapEntradas.get(codigo) || { cantidad:0, ultimaFecha:null };
         const sal = mapSalidas.get(codigo) || { cantidad:0, sucursal:"-", ultimaFecha:null };
         const prod = mapProductos.get(codigo) || { descripcion:"-" };
+
         const stock = (ent.cantidad||0) - (sal.cantidad||0);
         const uFecha = keepMaxDate(ent.ultimaFecha, sal.ultimaFecha);
 
-        const tr = document.createElement('tr');
+        // Ocultar filas con stock 0
+        if (Number(stock) === 0) return;
+
+        const tr = document.createElement("tr");
         tr.innerHTML = `
           <td>${codigo}</td>
           <td>${prod.descripcion}</td>
@@ -175,11 +294,14 @@
           <td>${sal.sucursal || '-'}</td>
           <td>${fmt(uFecha)}</td>
         `;
-        tablaBody.appendChild(tr);
-      }
-    }
+        $tbody.appendChild(tr);
 
-    cargarDatos();
+        totItems++;
+        if (stock>=0) totPos+=stock; else totNeg+=stock;
+      });
+
+      $badge.textContent = `Productos: ${totItems} · Stock (+): ${totPos} · Stock (−): ${totNeg}`;
+    }
 
     // Excel
     window.exportarExcel = function(){
@@ -187,22 +309,12 @@
       const wb = XLSX.utils.book_new();
       const ws = XLSX.utils.table_to_sheet(tabla);
       XLSX.utils.book_append_sheet(wb, ws, "Inventario");
-      XLSX.writeFile(wb, "Inventario_Sin_Costos.xlsx");
+      XLSX.writeFile(wb, "Inventario_Cigarro_SinCostos.xlsx");
     };
-  </script>
 
-  <script>
-    // Ocultar filas con stock 0 automáticamente
-    document.addEventListener('DOMContentLoaded', () => {
-      const observer = new MutationObserver(() => {
-        document.querySelectorAll("#tablaInventario tbody tr").forEach(row=>{
-          const stockCell = row.children[4];
-          if (stockCell && stockCell.textContent.trim() === "0") row.style.display = "none";
-        });
-      });
-      const target = document.querySelector("#tablaInventario tbody");
-      if (target) observer.observe(target, { childList: true });
-    });
+    // Eventos
+    document.addEventListener("DOMContentLoaded", cargarDatos);
+    document.getElementById("btnRefrescar").addEventListener("click", cargarDatos);
   </script>
 </body>
 </html>
