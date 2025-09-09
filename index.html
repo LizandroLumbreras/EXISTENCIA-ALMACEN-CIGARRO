@@ -2,14 +2,14 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Inventario – Almacén Cigarro (con costo total)</title>
+  <title>Inventario – Cigarro (Existencia costeada)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
     :root{
       --grad-a:#00416A; --grad-b:#E4E5E6; --card-bg:rgba(255,255,255,.12);
-      --table-bg:rgba(255,255,255,.85); --shadow:0 10px 30px rgba(0,0,0,.25);
+      --table-bg:rgba(255,255,255,.9); --shadow:0 10px 30px rgba(0,0,0,.25);
       --radius:16px; --brand:#e60000;
     }
     *{box-sizing:border-box}
@@ -20,9 +20,9 @@
     body::before{
       content:""; position:fixed; inset:0; z-index:0;
       background:url('logo_proveedora.webp') no-repeat center/ min(70vw,1000px);
-      opacity:.07; pointer-events:none; filter:saturate(1) contrast(1.05);
+      opacity:.07; pointer-events:none;
     }
-    .wrap{ max-width:1200px; margin:auto; position:relative; z-index:1; }
+    .wrap{ max-width:1100px; margin:auto; position:relative; z-index:1; }
     header.card{
       background:var(--card-bg); color:#fff; border-radius:var(--radius); box-shadow:var(--shadow);
       padding:18px 20px; backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:space-between; gap:16px;
@@ -32,18 +32,18 @@
     .btn{ appearance:none; border:none; cursor:pointer; background:#0c6cbd; color:#fff; border-radius:12px; padding:10px 14px; font-weight:600; box-shadow:0 8px 18px rgba(12,108,189,.35) }
     .table-card{ margin-top:18px; padding:16px; background:var(--card-bg); border-radius:var(--radius); box-shadow:var(--shadow); backdrop-filter:blur(10px) }
     .table-wrap{ background:var(--table-bg); border-radius:14px; overflow:auto; box-shadow:inset 0 0 0 1px rgba(0,0,0,.06) }
-    table{ width:100%; border-collapse:collapse; min-width:900px }
-    th,td{ padding:10px 12px; border-bottom:1px solid #e6e6e6; text-align:left; font-size:14px }
+    table{ width:100%; border-collapse:collapse; min-width:680px }
+    th,td{ padding:12px 14px; border-bottom:1px solid #e6e6e6; text-align:left; font-size:14px }
     thead th{ position:sticky; top:0; z-index:1; background:#007bff; color:#fff; border-bottom:none }
-    tbody tr:nth-child(even){ background:#f7f7f7 } tbody tr:hover{ background:rgba(0,0,0,.04) }
+    tbody tr:nth-child(even){ background:#f4f8fb } tbody tr:hover{ background:rgba(0,0,0,.04) }
     .positivo{ color:#16871a; font-weight:700 } .negativo{ color:#c62828; font-weight:700 }
-    @media (max-width:720px){ .ttl{font-size:16px} .badge{display:block; width:100%; text-align:center} }
+    @media (max-width:720px){ .ttl{font-size:16px} .badge{display:block; width:100%; text-align:center; margin-top:8px} }
   </style>
 </head>
 <body>
   <div class="wrap">
     <header class="card">
-      <h1 class="ttl">📦 Inventario – Almacén <span style="color:var(--brand)">CIGARRO</span></h1>
+      <h1 class="ttl">📦 Inventario – <span style="color:var(--brand)">CIGARRO</span> (existencia costeada)</h1>
       <div class="toolbar">
         <span class="badge" id="resumenBadge">Cargando…</span>
         <button class="btn" onclick="exportarExcel()">Descargar Excel</button>
@@ -57,12 +57,8 @@
             <tr>
               <th>Código</th>
               <th>Descripción</th>
-              <th>Entradas</th>
-              <th>Salidas</th>
               <th>Stock</th>
               <th>Costo Total</th>
-              <th>Sucursal destino</th>
-              <th>Última fecha</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -75,6 +71,7 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
     import { getFirestore, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
+    // Firebase
     const firebaseConfig = {
       apiKey: "AIzaSyCK5nb6u2CGRJ8AB1aPlRn54b97bdeAFeM",
       authDomain: "inventariopv-643f1.firebaseapp.com",
@@ -86,73 +83,63 @@
     const app = initializeApp(firebaseConfig);
     const db  = getFirestore(app);
 
+    // Colecciones
     const entradasRef  = collection(db, "almacenes", "almacen_cigarro", "entradas");
     const salidasRef   = collection(db, "almacenes", "almacen_cigarro", "salidas");
     const productosRef = collection(db, "productos");
 
-    const mapEntradas  = new Map();
-    const mapSalidas   = new Map();
-    const mapProductos = new Map();
+    // Estados
+    const mapEntradas  = new Map(); // codigo -> {cantidad, ultimaFecha}
+    const mapSalidas   = new Map(); // codigo -> {cantidad}
+    const mapProductos = new Map(); // codigo -> {descripcion, costo}
 
     const $tbody = document.querySelector("#tablaInventario tbody");
     const $badge = document.getElementById("resumenBadge");
 
-    function toDate(any){
-      if(!any) return null;
-      if (typeof any === "object" && "seconds" in any) return new Date(any.seconds*1000);
-      const d = new Date(any); return isNaN(d.getTime()) ? null : d;
-    }
-    const fmt = d => !d ? "-" : `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
-    const keepMaxDate=(a,b)=>{ const da=toDate(a), db=toDate(b); if(!da) return db; if(!db) return da; return (db>da)?db:da; };
-
-    // ✅ Formateador de moneda MXN
+    // Utilidades
     const fmtMoneda = n => n.toLocaleString("es-MX",{style:"currency",currency:"MXN"});
 
+    // Render
     function render(){
       $tbody.innerHTML = "";
       const codigos = new Set([...mapEntradas.keys(), ...mapSalidas.keys()]);
-      let totItems=0, totPos=0, totNeg=0, totCost=0;
+      let totItems=0, totalStock=0, totalCosto=0;
 
-      [...codigos].forEach(codigo=>{
-        const ent = mapEntradas.get(codigo) || { cantidad:0, ultimaFecha:null };
-        const sal = mapSalidas.get(codigo) || { cantidad:0, sucursal:"-", ultimaFecha:null };
+      [...codigos].sort((a,b)=> String(a).localeCompare(String(b),'es',{numeric:true,sensitivity:'base'}))
+      .forEach(codigo=>{
+        const ent = mapEntradas.get(codigo) || { cantidad:0 };
+        const sal = mapSalidas.get(codigo) || { cantidad:0 };
         const prod = mapProductos.get(codigo) || { descripcion:"-", costo:0 };
 
         const stock = (ent.cantidad||0) - (sal.cantidad||0);
-        const uFecha = keepMaxDate(ent.ultimaFecha, sal.ultimaFecha);
-        if (stock===0) return;
+        if (stock === 0) return;
 
-        const costo = Number(prod.costo||0);
-        const subtotal = stock * costo;
+        const costoTotal = stock * Number(prod.costo||0);
 
         const tr = document.createElement("tr");
         tr.innerHTML = `
           <td>${codigo}</td>
           <td>${prod.descripcion}</td>
-          <td>${ent.cantidad||0}</td>
-          <td>${sal.cantidad||0}</td>
           <td class="${stock>=0?'positivo':'negativo'}">${stock}</td>
-          <td>${fmtMoneda(subtotal)}</td>
-          <td>${sal.sucursal}</td>
-          <td>${fmt(uFecha)}</td>
+          <td>${fmtMoneda(costoTotal)}</td>
         `;
         $tbody.appendChild(tr);
 
         totItems++;
-        if (stock>=0) totPos+=stock; else totNeg+=stock;
-        totCost += subtotal;
+        totalStock += stock;
+        totalCosto += costoTotal;
       });
 
-      $badge.textContent = `Productos: ${totItems} · Stock (+): ${totPos} · Stock (−): ${totNeg} · Total: ${fmtMoneda(totCost)}`;
+      $badge.textContent = `Productos: ${totItems} · Piezas totales: ${totalStock} · Total: ${fmtMoneda(totalCosto)}`;
     }
 
-    // Subscripciones en tiempo real
+    // Suscripciones en tiempo real
     onSnapshot(productosRef, snap=>{
       mapProductos.clear();
       snap.forEach(doc=>{
         const p = doc.data();
-        const desc = (p.concepto || p.Concepto || "-")+"";
-        const codB = (p.codigoBarra || p.CodigoBarra || "")+"";
+        const desc  = (p.concepto || p.Concepto || "-")+"";
+        const codB  = (p.codigoBarra || p.CodigoBarra || "")+"";
         const costo = Number(p.costoSinImpuesto||0);
         if (codB) mapProductos.set(codB, { descripcion:desc, costo });
         if (!mapProductos.has(doc.id)) mapProductos.set(doc.id, { descripcion:desc, costo });
@@ -164,15 +151,13 @@
       mapEntradas.clear();
       snap.forEach(doc=>{
         const m = doc.data();
-        const fechaDoc = m.timestamp || m.fecha;
-        const items = Array.isArray(m.productos)? m.productos:[m];
+        const items = Array.isArray(m.productos)? m.productos : [m];
         items.forEach(it=>{
           const codigo = (it.codigo || it.codigoBarra || it.id || "")+"";
           if(!codigo) return;
           const cant = Number(it.cantidad||0);
-          const prev = mapEntradas.get(codigo) || { cantidad:0, ultimaFecha:null };
+          const prev = mapEntradas.get(codigo) || { cantidad:0 };
           prev.cantidad += cant;
-          prev.ultimaFecha = keepMaxDate(prev.ultimaFecha, fechaDoc);
           mapEntradas.set(codigo, prev);
         });
       });
@@ -183,29 +168,26 @@
       mapSalidas.clear();
       snap.forEach(doc=>{
         const m = doc.data();
-        const fechaDoc = m.timestamp || m.fecha;
-        const suc = m.destino || m.sucursal || "-";
-        const items = Array.isArray(m.productos)? m.productos:[m];
+        const items = Array.isArray(m.productos)? m.productos : [m];
         items.forEach(it=>{
           const codigo = (it.codigo || it.codigoBarra || it.id || "")+"";
           if(!codigo) return;
           const cant = Number(it.cantidad||0);
-          const prev = mapSalidas.get(codigo) || { cantidad:0, sucursal:"-", ultimaFecha:null };
+          const prev = mapSalidas.get(codigo) || { cantidad:0 };
           prev.cantidad += cant;
-          prev.sucursal = suc;
-          prev.ultimaFecha = keepMaxDate(prev.ultimaFecha, fechaDoc);
           mapSalidas.set(codigo, prev);
         });
       });
       render();
     });
 
+    // Exportar Excel (solo 4 columnas)
     window.exportarExcel = function(){
       const tabla = document.getElementById("tablaInventario");
       const wb = XLSX.utils.book_new();
       const ws = XLSX.utils.table_to_sheet(tabla);
-      XLSX.utils.book_append_sheet(wb, ws, "Inventario");
-      XLSX.writeFile(wb, "Inventario_Cigarro.xlsx");
+      XLSX.utils.book_append_sheet(wb, ws, "Existencia costeada");
+      XLSX.writeFile(wb, "Inventario_Cigarro_Existencia_Costeada.xlsx");
     };
   </script>
 </body>
