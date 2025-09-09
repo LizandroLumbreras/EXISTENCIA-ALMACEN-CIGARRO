@@ -53,7 +53,7 @@
       box-shadow:0 6px 18px rgba(0,0,0,.15);
     }
     .toolbar{
-      display:flex; gap:10px; flex-wrap:wrap;
+      display:flex; gap:10px; flex-wrap:wrap; align-items:center;
     }
     .btn{
       appearance:none; border:none; cursor:pointer;
@@ -63,10 +63,6 @@
     }
     .btn:hover{ filter:brightness(1.05) }
     .btn:active{ transform: scale(.98) }
-    .ghost{
-      background:transparent; color:#fff; border:1px solid rgba(255,255,255,.6);
-      box-shadow:none;
-    }
 
     .table-card{
       margin-top:18px; padding:16px;
@@ -123,7 +119,7 @@
       <h1 class="ttl">📦 Inventario – Almacén <span style="color:var(--brand)">CIGARRO (piezas)</span></h1>
       <div class="toolbar">
         <span class="badge" id="resumenBadge">Cargando…</span>
-        <button class="btn ghost" id="btnRefrescar">Actualizar</button>
+        <!-- Botón Actualizar eliminado -->
         <button class="btn" onclick="exportarExcel()">Descargar Excel</button>
       </div>
     </header>
@@ -174,14 +170,13 @@
     const salidasRef   = collection(db, "almacenes", "almacen_cigarro", "salidas");
     const productosRef = collection(db, "productos");
 
-    // 🧠 Mapas
+    // 🧠 Mapas (se reusarán pero se limpiarán antes de cada carga)
     const mapEntradas  = new Map(); // codigo -> {cantidad, ultimaFecha}
     const mapSalidas   = new Map(); // codigo -> {cantidad(solo desde 3ª), sucursal, ultimaFecha}
     const mapProductos = new Map(); // codigo -> {descripcion}
 
-    const $tbody   = document.querySelector("#tablaInventario tbody");
-    const $badge   = document.getElementById("resumenBadge");
-    const $refresh = document.getElementById("btnRefrescar");
+    const $tbody = document.querySelector("#tablaInventario tbody");
+    const $badge = document.getElementById("resumenBadge");
 
     // ⏱️ util fechas
     function toDate(any){
@@ -193,8 +188,12 @@
     const keepMaxDate=(a,b)=>{ const da=toDate(a), db=toDate(b); if(!da) return db; if(!db) return da; return (db>da)?db:da; };
 
     async function cargarDatos(){
-      $badge.textContent = "Cargando…";
+      // ✅ Limpieza total para evitar acumulados en recargas
+      mapEntradas.clear();
+      mapSalidas.clear();
+      mapProductos.clear();
       $tbody.innerHTML = "";
+      $badge.textContent = "Cargando…";
 
       const [entradasSnap, salidasSnap, productosSnap] = await Promise.all([
         getDocs(entradasRef),
@@ -308,9 +307,8 @@
       XLSX.writeFile(wb, "Inventario_Cigarro_SinCostos.xlsx");
     };
 
-    // Eventos
+    // Cargar una sola vez al iniciar
     document.addEventListener("DOMContentLoaded", cargarDatos);
-    document.getElementById("btnRefrescar").addEventListener("click", cargarDatos);
   </script>
 </body>
 </html>
