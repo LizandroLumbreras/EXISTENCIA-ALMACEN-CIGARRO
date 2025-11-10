@@ -222,35 +222,18 @@ $btnGuardar.addEventListener("click", async () => {
     }
   }
 
-alert(`✅ ${ajustesPendientes.length} ajustes aplicados correctamente.`);
+  alert(`✅ ${ajustesPendientes.length} ajustes aplicados correctamente.`);
 
-// 🔹 Limpia campos visuales
-document.querySelectorAll("input[type='number']").forEach(i => {
-  i.value = "";
-  i.style.background = "";
-});
-
-// 🔹 Reinicia y fuerza actualización
-ajustesPendientes = [];
-await new Promise(res => setTimeout(res, 800)); // espera a que Firestore confirme escritura
-render(); // vuelve a pintar tabla con nuevos datos
-
-// === Entradas (manuales o ajustes) ===
-onSnapshot(entradasRef, snap => {
-  mapEntradas.clear();
-  snap.forEach(doc => {
-    const m = doc.data();
-    const items = Array.isArray(m.productos) ? m.productos : [m];
-    items.forEach(it => {
-      const codigo = (it.codigo || it.codigoBarra || it.id || "") + "";
-      if (!codigo) return;
-      const cant = Number(it.cantidad || 0);
-      const prev = mapEntradas.get(codigo) || { cantidad: 0 };
-      prev.cantidad += cant;
-      mapEntradas.set(codigo, prev);
-    });
+  // Limpia campos visuales
+  document.querySelectorAll("input[type='number']").forEach(i => {
+    i.value = "";
+    i.style.background = "";
   });
-  render();
+
+  // Reinicia y fuerza actualización
+  ajustesPendientes = [];
+  await new Promise(res => setTimeout(res, 1000));
+  location.reload();
 });
 
 // === Entradas automáticas desde facturas clasificadas ===
