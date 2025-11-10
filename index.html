@@ -5,8 +5,6 @@
   <title>Inventario – Cigarro (Existencia costeada)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
     :root{
@@ -39,6 +37,7 @@
     thead th{ position:sticky; top:0; z-index:1; background:#007bff; color:#fff; border-bottom:none }
     tbody tr:nth-child(even){ background:#f4f8fb } tbody tr:hover{ background:rgba(0,0,0,.04) }
     .positivo{ color:#16871a; font-weight:700 } .negativo{ color:#c62828; font-weight:700 }
+    @media (max-width:720px){ .ttl{font-size:16px} .badge{display:block; width:100%; text-align:center; margin-top:8px} }
   </style>
 </head>
 <body>
@@ -48,7 +47,6 @@
       <div class="toolbar">
         <span class="badge" id="resumenBadge">Cargando…</span>
         <button class="btn" onclick="exportarExcel()">Descargar Excel</button>
-        <button class="btn" id="btnPDF">📄 Generar PDF</button>
         <button class="btn" id="btnGuardar">Guardar Ajustes</button>
       </div>
     </header>
@@ -71,17 +69,11 @@
     </section>
   </div>
 
-<script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getFirestore, collection, onSnapshot, getDocs, addDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-<script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getFirestore, collection, onSnapshot, getDocs, addDoc } 
-    from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-
-  const { jsPDF } = window.jspdf;
-
+    // --- Firebase Config ---
     const firebaseConfig = {
       apiKey: "AIzaSyCK5nb6u2CGRJ8AB1aPlRn54b97bdeAFeM",
       authDomain: "inventariopv-643f1.firebaseapp.com",
@@ -93,31 +85,48 @@
     const app = initializeApp(firebaseConfig);
     const db  = getFirestore(app);
 
+    // --- Colecciones principales ---
     const entradasRef  = collection(db, "almacenes", "almacen_cigarro", "entradas");
     const salidasRef   = collection(db, "almacenes", "almacen_cigarro", "salidas");
     const productosRef = collection(db, "productos");
 
+    // --- Estados ---
     const mapEntradas  = new Map();
     const mapSalidas   = new Map();
     const mapProductos = new Map();
 
     const $tbody = document.querySelector("#tablaInventario tbody");
     const $badge = document.getElementById("resumenBadge");
-    const $btnPDF = document.getElementById("btnPDF");
+    const $btnGuardar = document.getElementById("btnGuardar");
+    let ajustesPendientes = [];
+    const CLAVE_ADMIN = "ADMIN123";
+
+    // --- Utilidad formato ---
     const fmtMoneda = n => n.toLocaleString("es-MX",{style:"currency",currency:"MXN"});
 
-    // --- Render (sin cambios) ---
+    // --- Generar folio automático ---
+    async function generarFolio(tipo) {
+      const prefijo = tipo === "entrada" ? "AJ-CIG-E" : "AJ-CIG-S";
+      const ref = tipo === "entrada" ? entradasRef : salidasRef;
+      const docs = await getDocs(ref);
+      const consecutivo = (docs.size + 1).toString().padStart(4, "0");
+      return `${prefijo}-${consecutivo}`;
+    }
+
+    // --- Render principal ---
     function render(){
       $tbody.innerHTML = "";
       const codigos = new Set([...mapEntradas.keys(), ...mapSalidas.keys()]);
       let totItems=0, totalStock=0, totalCosto=0;
 
-      [...codigos].sort().forEach(codigo=>{
+      [...codigos].sort((a,b)=> String(a).localeCompare(String(b),'es',{numeric:true,sensitivity:'base'}))
+      .forEach(codigo=>{
         const ent = mapEntradas.get(codigo) || { cantidad:0 };
         const sal = mapSalidas.get(codigo) || { cantidad:0 };
         const prod = mapProductos.get(codigo) || { descripcion:"-", costo:0 };
         const stock = (ent.cantidad||0) - (sal.cantidad||0);
         const costoTotal = stock * Number(prod.costo||0);
+
         const tr = document.createElement("tr");
         tr.innerHTML = `
           <td>${codigo}</td>
@@ -125,13 +134,29 @@
           <td class="${stock>=0?'positivo':'negativo'}">${stock}</td>
           <td>${fmtMoneda(costoTotal)}</td>
           <td><input type="number" step="any" placeholder="0" 
-              style="width:90px;text-align:center;border:1px solid #ccc;border-radius:6px;"></td>
+            style="width:90px;text-align:center;border:1px solid #ccc;border-radius:6px;"></td>
         `;
+
+        const input = tr.querySelector("input");
+        input.addEventListener("change", e => {
+          tr.style.background = "#fff7b3";
+const valor = Number(e.target.value);
+if (isNaN(valor)) return; // permite 0 y negativos
+ajustesPendientes = ajustesPendientes.filter(a => a.codigo !== codigo);
+ajustesPendientes.push({
+  codigo,
+  descripcion: prod.descripcion,
+  cantidad: valor,
+});
+e.target.style.background = "#f9f871";
+        });
+
         $tbody.appendChild(tr);
         totItems++;
         totalStock += stock;
         totalCosto += costoTotal;
       });
+
       $badge.textContent = `Productos: ${totItems} · Piezas totales: ${totalStock} · Total: ${fmtMoneda(totalCosto)}`;
     }
 
@@ -149,59 +174,177 @@
       render();
     });
 
-    // --- PDF con logo ---
-    $btnPDF.addEventListener("click", async () => {
-      const { jsPDF } = window.jspdf;
-      const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-      const fecha = new Date().toLocaleString("es-MX");
+    // --- Guardar ajustes manuales ---
+    $btnGuardar.addEventListener("click", async () => {
+      if (ajustesPendientes.length === 0) return alert("No hay ajustes pendientes por guardar.");
+      const clave = prompt("Ingrese la contraseña de autorización:");
+      if (clave !== CLAVE_ADMIN) return alert("❌ Contraseña incorrecta.");
+      if (!confirm(`Se aplicarán ${ajustesPendientes.length} ajustes. ¿Continuar?`)) return;
 
-      // Cargar logo
-      const logoUrl = "logo_proveedora.webp";
-      const logo = await fetch(logoUrl).then(res => res.blob()).then(b => new Promise(r=>{
-        const fr = new FileReader();
-        fr.onload = ()=>r(fr.result);
-        fr.readAsDataURL(b);
-      }));
+      for (const aj of ajustesPendientes) {
+       const valor = Number(aj.cantidad);
 
-      doc.addImage(logo, "WEBP", 14, 10, 25, 25);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(18);
-      doc.text("Reporte de Inventario – CIGARRO", 105, 20, { align: "center" });
-      doc.setFontSize(11);
-      doc.text(`Fecha de generación: ${fecha}`, 105, 28, { align: "center" });
-      doc.text("Responsable de Almacén: Gibran Román", 14, 42);
-      doc.text("Auditoría: Lizandro Lumbreras", 14, 48);
+// Permitir ajustes con 0
+if (isNaN(valor)) continue;
+// --- AJUSTE DE STOCK DIRECTO ---
+const stockActual = (mapEntradas.get(aj.codigo)?.cantidad || 0) - (mapSalidas.get(aj.codigo)?.cantidad || 0);
+const diferencia = valor - stockActual;
 
-      const datos = [];
-      let totalCostoGlobal = 0;
+if (diferencia === 0) {
+  console.log(`Sin cambio en ${aj.codigo}`);
+  continue;
+}
 
-      const codigos = new Set([...mapEntradas.keys(), ...mapSalidas.keys()]);
-      codigos.forEach(codigo => {
-        const ent = mapEntradas.get(codigo) || { cantidad:0 };
-        const sal = mapSalidas.get(codigo) || { cantidad:0 };
-        const prod = mapProductos.get(codigo) || { descripcion:"-", costo:0 };
-        const stock = (ent.cantidad||0) - (sal.cantidad||0);
-        const costoTotal = stock * Number(prod.costo||0);
-        totalCostoGlobal += costoTotal;
-        datos.push([codigo, prod.descripcion, stock, fmtMoneda(costoTotal)]);
-      });
+const tipo = diferencia > 0 ? "entrada" : "salida";
+const folio = await generarFolio(tipo);
 
-      doc.autoTable({
-        head: [["Código", "Descripción", "Cantidad", "Costo"]],
-        body: datos,
-        startY: 55,
-        styles: { fontSize: 9 },
-        headStyles: { fillColor: [0,65,106], textColor: 255 },
-        alternateRowStyles: { fillColor: [240,240,240] },
-      });
+const movimiento = {
+  folio,
+  fecha: new Date().toLocaleString("es-MX"),
+  origen: "AJUSTE MANUAL",
+  entrega: "AJUSTE",
+  productos: [{
+    id: aj.codigo,
+    codigo: aj.codigo,
+    descripcion: aj.descripcion,
+    cantidad: Math.abs(diferencia),
+    unidad: "PZA"
+  }]
+};
 
-      const y = doc.lastAutoTable.finalY + 10;
-      doc.setFontSize(12);
-      doc.setFont("helvetica", "bold");
-      doc.text(`Total Costeado: ${fmtMoneda(totalCostoGlobal)}`, 14, y);
+try {
+  const refPath = tipo === "entrada" ? entradasRef : salidasRef;
+  await addDoc(refPath, movimiento);
 
-      doc.save("Reporte_Inventario_Cigarro.pdf");
+  // Aplica el cambio directo al mapa
+  if (tipo === "entrada") {
+    const prev = mapEntradas.get(aj.codigo) || { cantidad: 0 };
+    prev.cantidad += Math.abs(diferencia);
+    mapEntradas.set(aj.codigo, prev);
+  } else {
+    const prev = mapSalidas.get(aj.codigo) || { cantidad: 0 };
+    prev.cantidad += Math.abs(diferencia);
+    mapSalidas.set(aj.codigo, prev);
+  }
+
+  console.log(`✔ Ajuste aplicado a ${aj.codigo}: nuevo stock = ${valor}`);
+  render();
+} catch (err) {
+  console.error("Error guardando ajuste:", err);
+}
+      }
+
+      alert(`✅ ${ajustesPendientes.length} ajustes aplicados correctamente.`);
+      document.querySelectorAll("input[type='number']").forEach(i => { i.value = ""; i.style.background = ""; });
+      ajustesPendientes = [];
     });
+
+    // --- Entradas (manuales + facturas automáticas) ---
+    function actualizarEntradas() {
+      mapEntradas.clear();
+
+      // Entradas manuales
+      getDocs(entradasRef).then(snapshot => {
+        snapshot.forEach(doc => {
+          const m = doc.data();
+          if (Array.isArray(m.productos)) {
+            m.productos.forEach(it => {
+              const codigo = (it.codigo || it.id || "") + "";
+              if (!codigo) return;
+              const cant = Number(it.cantidad || 0);
+              const prev = mapEntradas.get(codigo) || { cantidad: 0 };
+              prev.cantidad += cant;
+              mapEntradas.set(codigo, prev);
+            });
+          }
+        });
+      });
+
+      // Entradas automáticas desde facturas
+      getDocs(collection(db, "facturas_pdd")).then(snapshot => {
+        snapshot.forEach(doc => {
+          const data = doc.data();
+          if (data.destino !== "almacen_cigarro") return;
+          if (!Array.isArray(data.conceptos_detalle)) return;
+
+          data.conceptos_detalle.forEach(it => {
+            const codigo = (it.productoId || "") + "";
+            if (!codigo) return;
+            const cant = Number(it.cantidadTotal || it.cantidad || 0);
+            const prev = mapEntradas.get(codigo) || { cantidad: 0 };
+            prev.cantidad += cant;
+            mapEntradas.set(codigo, prev);
+          });
+        });
+        render();
+      });
+    }
+
+// === Entradas en tiempo real sin duplicar ===
+onSnapshot(entradasRef, snap => {
+  mapEntradas.clear();
+
+  // --- Entradas manuales ---
+  snap.forEach(doc => {
+    const m = doc.data();
+    if (Array.isArray(m.productos)) {
+      m.productos.forEach(it => {
+        const codigo = (it.codigo || it.id || "") + "";
+        if (!codigo) return;
+        const cant = Number(it.cantidad || 0);
+        const prev = mapEntradas.get(codigo) || { cantidad: 0 };
+        prev.cantidad += cant;
+        mapEntradas.set(codigo, prev);
+      });
+    }
+  });
+
+  // --- Entradas automáticas desde facturas ---
+  getDocs(collection(db, "facturas_pdd")).then(snapshot => {
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      if (data.destino !== "almacen_cigarro") return;
+      if (!Array.isArray(data.conceptos_detalle)) return;
+
+      data.conceptos_detalle.forEach(it => {
+        const codigo = (it.productoId || "") + "";
+        if (!codigo) return;
+        const cant = Number(it.cantidadTotal || it.cantidad || 0);
+        const prev = mapEntradas.get(codigo) || { cantidad: 0 };
+        prev.cantidad += cant;
+        mapEntradas.set(codigo, prev);
+      });
+    });
+    render();
+  });
+});
+
+    // --- Salidas ---
+    onSnapshot(salidasRef, snap => {
+      mapSalidas.clear();
+      snap.forEach(doc => {
+        const m = doc.data();
+        const items = Array.isArray(m.productos) ? m.productos : [m];
+        items.forEach(it => {
+          const codigo = (it.codigo || it.codigoBarra || it.id || "") + "";
+          if (!codigo) return;
+          const cant = Number(it.cantidad || 0);
+          const prev = mapSalidas.get(codigo) || { cantidad: 0 };
+          prev.cantidad += cant;
+          mapSalidas.set(codigo, prev);
+        });
+      });
+      render();
+    });
+
+    // --- Exportar Excel ---
+    window.exportarExcel = function(){
+      const tabla = document.getElementById("tablaInventario");
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.table_to_sheet(tabla);
+      XLSX.utils.book_append_sheet(wb, ws, "Existencia costeada");
+      XLSX.writeFile(wb, "Inventario_Cigarro_Existencia_Costeada.xlsx");
+    };
   </script>
 </body>
 </html>
