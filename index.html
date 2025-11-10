@@ -181,8 +181,10 @@
       if (!confirm(`Se aplicarán ${ajustesPendientes.length} ajustes. ¿Continuar?`)) return;
 
       for (const aj of ajustesPendientes) {
-        const valor = Number(aj.cantidad);
-        if (!valor) continue;
+       const valor = Number(aj.cantidad);
+
+// Permitir ajustes con 0
+if (isNaN(valor)) continue;
 // --- AJUSTE DE STOCK DIRECTO ---
 const stockActual = (mapEntradas.get(aj.codigo)?.cantidad || 0) - (mapSalidas.get(aj.codigo)?.cantidad || 0);
 const diferencia = valor - stockActual;
