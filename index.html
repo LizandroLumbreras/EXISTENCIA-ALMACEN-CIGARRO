@@ -47,6 +47,7 @@
       <div class="toolbar">
         <span class="badge" id="resumenBadge">Cargando…</span>
         <button class="btn" onclick="exportarExcel()">Descargar Excel</button>
+        <button class="btn" id="btnGuardar">Guardar Ajustes</button>
       </div>
     </header>
 
@@ -98,6 +99,10 @@
 
     const $tbody = document.querySelector("#tablaInventario tbody");
     const $badge = document.getElementById("resumenBadge");
+    const $btnGuardar = document.getElementById("btnGuardar");
+let ajustesPendientes = []; // se acumulan aquí los cambios pendientes
+const CLAVE_ADMIN = "ADMIN123"; // ← cambia esta clave
+
 
     // Utilidades
     const fmtMoneda = n => n.toLocaleString("es-MX",{style:"currency",currency:"MXN"});
@@ -135,41 +140,17 @@ function render(){
         style="width:90px;text-align:center;border:1px solid #ccc;border-radius:6px;"></td>
     `;
 
-    const input = tr.querySelector("input");
-    input.addEventListener("change", async e => {
-      const valor = Number(e.target.value);
-      if (!valor) return;
-
-      const tipo = valor > 0 ? "entrada" : "salida";
-      const folio = await generarFolio(tipo);
-
-      const movimiento = {
-        folio,
-        fecha: new Date().toLocaleString("es-MX"),
-        origen: "AJUSTE MANUAL",
-        entrega: "AJUSTE",
-        productos: [{
-          id: codigo,
-          codigo,
-          descripcion: prod.descripcion,
-          cantidad: Math.abs(valor),
-          unidad: "PZA"
-        }]
-      };
-
-      try {
-        const refPath = tipo === "entrada"
-          ? collection(db, "almacenes", "almacen_cigarro", "entradas")
-          : collection(db, "almacenes", "almacen_cigarro", "salidas");
-        await addDoc(refPath, movimiento);
-
-        alert(`✅ Ajuste registrado (${tipo.toUpperCase()}) con folio ${folio}`);
-        e.target.value = "";
-      } catch (err) {
-        console.error("Error guardando ajuste:", err);
-        alert("❌ Error al guardar el ajuste.");
-      }
-    });
+const input = tr.querySelector("input");
+input.addEventListener("change", e => {
+  const valor = Number(e.target.value);
+  if (!valor) return;
+  ajustesPendientes.push({
+    codigo,
+    descripcion: prod.descripcion,
+    cantidad: valor,
+  });
+  e.target.style.background = "#f9f871";
+});
 
     $tbody.appendChild(tr);
     totItems++;
@@ -195,7 +176,63 @@ onSnapshot(productosRef, snap => {
   });
   render();
 });
+$btnGuardar.addEventListener("click", async () => {
+  if (ajustesPendientes.length === 0) {
+    alert("No hay ajustes pendientes por guardar.");
+    return;
+  }
 
+  const clave = prompt("Ingrese la contraseña de autorización:");
+  if (clave !== CLAVE_ADMIN) {
+    alert("❌ Contraseña incorrecta. No se aplicaron los ajustes.");
+    return;
+  }
+
+  if (!confirm(`Se aplicarán ${ajustesPendientes.length} ajustes. ¿Continuar?`)) return;
+
+  for (const aj of ajustesPendientes) {
+    const valor = Number(aj.cantidad);
+    if (!valor) continue;
+
+    const tipo = valor > 0 ? "entrada" : "salida";
+    const folio = await generarFolio(tipo);
+
+    const movimiento = {
+      folio,
+      fecha: new Date().toLocaleString("es-MX"),
+      origen: "AJUSTE MANUAL",
+      entrega: "AJUSTE",
+      productos: [{
+        id: aj.codigo,
+        codigo: aj.codigo,
+        descripcion: aj.descripcion,
+        cantidad: Math.abs(valor),
+        unidad: "PZA"
+      }]
+    };
+
+    try {
+      const refPath = tipo === "entrada"
+        ? collection(db, "almacenes", "almacen_cigarro", "entradas")
+        : collection(db, "almacenes", "almacen_cigarro", "salidas");
+      await addDoc(refPath, movimiento);
+      console.log(`✔ Ajuste ${folio} registrado`);
+    } catch (err) {
+      console.error("Error guardando ajuste:", err);
+    }
+  }
+
+alert(`✅ ${ajustesPendientes.length} ajustes aplicados correctamente.`);
+
+// 🔹 Limpia los campos visuales y el arreglo temporal
+document.querySelectorAll("input[type='number']").forEach(i => {
+  i.value = "";
+  i.style.background = "";
+});
+
+ajustesPendientes = [];
+render();
+});
 // === Entradas (manuales o ajustes) ===
 onSnapshot(entradasRef, snap => {
   mapEntradas.clear();
