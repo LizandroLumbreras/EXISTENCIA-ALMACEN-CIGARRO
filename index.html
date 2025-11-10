@@ -31,7 +31,7 @@
     }
     .ttl{ margin:0; font-weight:700; letter-spacing:.3px; text-shadow:0 2px 10px rgba(0,0,0,.25) }
     .badge{ background:#fff; color:#111; border-radius:999px; padding:6px 12px; font-size:13px; font-weight:600; box-shadow:0 6px 18px rgba(0,0,0,.15) }
-    .btn{ appearance:none; border:none; cursor:pointer; background:#0c6cbd; color:#fff; border-radius:12px; padding:10px 14px; font-weight:600; box-shadow:0 8px 18px rgba(12,108,189,.35); margin-left:6px }
+    .btn{ appearance:none; border:none; cursor:pointer; background:#0c6cbd; color:#fff; border-radius:12px; padding:10px 14px; font-weight:600; box-shadow:0 8px 18px rgba(12,108,189,.35) }
     .table-card{ margin-top:18px; padding:16px; background:var(--card-bg); border-radius:var(--radius); box-shadow:var(--shadow); backdrop-filter:blur(10px) }
     .table-wrap{ background:var(--table-bg); border-radius:14px; overflow:auto; box-shadow:inset 0 0 0 1px rgba(0,0,0,.06) }
     table{ width:100%; border-collapse:collapse; min-width:680px }
@@ -47,8 +47,8 @@
       <h1 class="ttl">📦 Inventario – <span style="color:var(--brand)">CIGARRO</span> (existencia costeada)</h1>
       <div class="toolbar">
         <span class="badge" id="resumenBadge">Cargando…</span>
-        <button class="btn" id="btnPDF">📄 Generar PDF</button>
         <button class="btn" onclick="exportarExcel()">Descargar Excel</button>
+        <button class="btn" id="btnPDF">📄 Generar PDF</button>
         <button class="btn" id="btnGuardar">Guardar Ajustes</button>
       </div>
     </header>
@@ -73,7 +73,7 @@
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-    import { getFirestore, collection, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+    import { getFirestore, collection, onSnapshot, getDocs, addDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
     import { jsPDF } from "jspdf";
 
     const firebaseConfig = {
@@ -100,6 +100,7 @@
     const $btnPDF = document.getElementById("btnPDF");
     const fmtMoneda = n => n.toLocaleString("es-MX",{style:"currency",currency:"MXN"});
 
+    // --- Render (sin cambios) ---
     function render(){
       $tbody.innerHTML = "";
       const codigos = new Set([...mapEntradas.keys(), ...mapSalidas.keys()]);
@@ -128,6 +129,7 @@
       $badge.textContent = `Productos: ${totItems} · Piezas totales: ${totalStock} · Total: ${fmtMoneda(totalCosto)}`;
     }
 
+    // --- Productos ---
     onSnapshot(productosRef, snap => {
       mapProductos.clear();
       snap.forEach(doc => {
@@ -141,80 +143,58 @@
       render();
     });
 
-    // --- PDF sin firma ---
-    $btnPDF.addEventListener("click", () => {
+    // --- PDF con logo ---
+    $btnPDF.addEventListener("click", async () => {
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
       const fecha = new Date().toLocaleString("es-MX");
-      const datos = [];
-      let total = 0;
 
-      const codigos = new Set([...mapEntradas.keys(), ...mapSalidas.keys()]);
-      codigos.forEach(codigo => {
-        const ent = mapEntradas.get(codigo) || { cantidad:0 };
-        const sal = mapSalidas.get(codigo) || { cantidad:0 };
-        const prod = mapProductos.get(codigo) || { descripcion:"-" };
-        const stock = (ent.cantidad||0) - (sal.cantidad||0);
-        total += stock;
-        datos.push([codigo, prod.descripcion, stock]);
-      });
+      // Cargar logo
+      const logoUrl = "logo_proveedora.webp";
+      const logo = await fetch(logoUrl).then(res => res.blob()).then(b => new Promise(r=>{
+        const fr = new FileReader();
+        fr.onload = ()=>r(fr.result);
+        fr.readAsDataURL(b);
+      }));
 
+      doc.addImage(logo, "WEBP", 14, 10, 25, 25);
       doc.setFont("helvetica", "bold");
       doc.setFontSize(18);
       doc.text("Reporte de Inventario – CIGARRO", 105, 20, { align: "center" });
       doc.setFontSize(11);
       doc.text(`Fecha de generación: ${fecha}`, 105, 28, { align: "center" });
+      doc.text("Responsable de Almacén: Gibran Román", 14, 42);
+      doc.text("Auditoría: Lizandro Lumbreras", 14, 48);
+
+      const datos = [];
+      let totalCostoGlobal = 0;
+
+      const codigos = new Set([...mapEntradas.keys(), ...mapSalidas.keys()]);
+      codigos.forEach(codigo => {
+        const ent = mapEntradas.get(codigo) || { cantidad:0 };
+        const sal = mapSalidas.get(codigo) || { cantidad:0 };
+        const prod = mapProductos.get(codigo) || { descripcion:"-", costo:0 };
+        const stock = (ent.cantidad||0) - (sal.cantidad||0);
+        const costoTotal = stock * Number(prod.costo||0);
+        totalCostoGlobal += costoTotal;
+        datos.push([codigo, prod.descripcion, stock, fmtMoneda(costoTotal)]);
+      });
 
       doc.autoTable({
-        head: [["Código", "Descripción", "Cantidad"]],
+        head: [["Código", "Descripción", "Cantidad", "Costo"]],
         body: datos,
-        startY: 35,
+        startY: 55,
         styles: { fontSize: 9 },
         headStyles: { fillColor: [0,65,106], textColor: 255 },
         alternateRowStyles: { fillColor: [240,240,240] },
       });
 
       const y = doc.lastAutoTable.finalY + 10;
+      doc.setFontSize(12);
       doc.setFont("helvetica", "bold");
-      doc.text(`Total de piezas: ${total}`, 14, y);
+      doc.text(`Total Costeado: ${fmtMoneda(totalCostoGlobal)}`, 14, y);
 
       doc.save("Reporte_Inventario_Cigarro.pdf");
-    });
-
-    // --- Entradas / Salidas ---
-    onSnapshot(entradasRef, snap => {
-      mapEntradas.clear();
-      snap.forEach(doc => {
-        const m = doc.data();
-        if (Array.isArray(m.productos)) {
-          m.productos.forEach(it => {
-            const codigo = (it.codigo || it.id || "") + "";
-            if (!codigo) return;
-            const cant = Number(it.cantidad || 0);
-            const prev = mapEntradas.get(codigo) || { cantidad: 0 };
-            prev.cantidad += cant;
-            mapEntradas.set(codigo, prev);
-          });
-        }
-      });
-      render();
-    });
-
-    onSnapshot(salidasRef, snap => {
-      mapSalidas.clear();
-      snap.forEach(doc => {
-        const m = doc.data();
-        const items = Array.isArray(m.productos) ? m.productos : [m];
-        items.forEach(it => {
-          const codigo = (it.codigo || it.codigoBarra || it.id || "") + "";
-          if (!codigo) return;
-          const cant = Number(it.cantidad || 0);
-          const prev = mapSalidas.get(codigo) || { cantidad: 0 };
-          prev.cantidad += cant;
-          mapSalidas.set(codigo, prev);
-        });
-      });
-      render();
     });
   </script>
 </body>
