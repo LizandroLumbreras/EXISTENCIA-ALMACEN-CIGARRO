@@ -53,14 +53,15 @@
     <section class="table-card">
       <div class="table-wrap">
         <table id="tablaInventario">
-          <thead>
-            <tr>
-              <th>Código</th>
-              <th>Descripción</th>
-              <th>Stock</th>
-              <th>Costo Total</th>
-            </tr>
-          </thead>
+<thead>
+  <tr>
+    <th>Código</th>
+    <th>Descripción</th>
+    <th>Stock</th>
+    <th>Costo Total</th>
+    <th>Ajuste Manual</th>
+  </tr>
+</thead>
           <tbody></tbody>
         </table>
       </div>
@@ -70,6 +71,8 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
     import { getFirestore, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+    import { addDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
 
     // Firebase
     const firebaseConfig = {
@@ -99,88 +102,157 @@
     // Utilidades
     const fmtMoneda = n => n.toLocaleString("es-MX",{style:"currency",currency:"MXN"});
 
-    // Render
-    function render(){
-      $tbody.innerHTML = "";
-      const codigos = new Set([...mapEntradas.keys(), ...mapSalidas.keys()]);
-      let totItems=0, totalStock=0, totalCosto=0;
+async function generarFolio(tipo) {
+  const prefijo = tipo === "entrada" ? "AJ-CIG-E" : "AJ-CIG-S";
+  const ref = tipo === "entrada"
+    ? collection(db, "almacenes", "almacen_cigarro", "entradas")
+    : collection(db, "almacenes", "almacen_cigarro", "salidas");
+  const docs = await getDocs(ref);
+  const consecutivo = (docs.size + 1).toString().padStart(4, "0");
+  return `${prefijo}-${consecutivo}`;
+}
 
-      [...codigos].sort((a,b)=> String(a).localeCompare(String(b),'es',{numeric:true,sensitivity:'base'}))
-      .forEach(codigo=>{
-        const ent = mapEntradas.get(codigo) || { cantidad:0 };
-        const sal = mapSalidas.get(codigo) || { cantidad:0 };
-        const prod = mapProductos.get(codigo) || { descripcion:"-", costo:0 };
+function render(){
+  $tbody.innerHTML = "";
+  const codigos = new Set([...mapEntradas.keys(), ...mapSalidas.keys()]);
+  let totItems=0, totalStock=0, totalCosto=0;
 
-        const stock = (ent.cantidad||0) - (sal.cantidad||0);
-        if (stock === 0) return;
+  [...codigos].sort((a,b)=> String(a).localeCompare(String(b),'es',{numeric:true,sensitivity:'base'}))
+  .forEach(codigo=>{
+    const ent = mapEntradas.get(codigo) || { cantidad:0 };
+    const sal = mapSalidas.get(codigo) || { cantidad:0 };
+    const prod = mapProductos.get(codigo) || { descripcion:"-", costo:0 };
+    const stock = (ent.cantidad||0) - (sal.cantidad||0);
+    const costoTotal = stock * Number(prod.costo||0);
 
-        const costoTotal = stock * Number(prod.costo||0);
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${codigo}</td>
+      <td>${prod.descripcion}</td>
+      <td class="${stock>=0?'positivo':'negativo'}">${stock}</td>
+      <td>${fmtMoneda(costoTotal)}</td>
+      <td><input type="number" step="any" placeholder="0" 
+        style="width:90px;text-align:center;border:1px solid #ccc;border-radius:6px;"></td>
+    `;
 
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td>${codigo}</td>
-          <td>${prod.descripcion}</td>
-          <td class="${stock>=0?'positivo':'negativo'}">${stock}</td>
-          <td>${fmtMoneda(costoTotal)}</td>
-        `;
-        $tbody.appendChild(tr);
+    const input = tr.querySelector("input");
+    input.addEventListener("change", async e => {
+      const valor = Number(e.target.value);
+      if (!valor) return;
 
-        totItems++;
-        totalStock += stock;
-        totalCosto += costoTotal;
-      });
+      const tipo = valor > 0 ? "entrada" : "salida";
+      const folio = await generarFolio(tipo);
 
-      $badge.textContent = `Productos: ${totItems} · Piezas totales: ${totalStock} · Total: ${fmtMoneda(totalCosto)}`;
-    }
+      const movimiento = {
+        folio,
+        fecha: new Date().toLocaleString("es-MX"),
+        origen: "AJUSTE MANUAL",
+        entrega: "AJUSTE",
+        productos: [{
+          id: codigo,
+          codigo,
+          descripcion: prod.descripcion,
+          cantidad: Math.abs(valor),
+          unidad: "PZA"
+        }]
+      };
 
-    // Suscripciones en tiempo real
-    onSnapshot(productosRef, snap=>{
-      mapProductos.clear();
-      snap.forEach(doc=>{
-        const p = doc.data();
-        const desc  = (p.concepto || p.Concepto || "-")+"";
-        const codB  = (p.codigoBarra || p.CodigoBarra || "")+"";
-        const costo = Number(p.costoSinImpuesto||0);
-        if (codB) mapProductos.set(codB, { descripcion:desc, costo });
-        if (!mapProductos.has(doc.id)) mapProductos.set(doc.id, { descripcion:desc, costo });
-      });
-      render();
+      try {
+        const refPath = tipo === "entrada"
+          ? collection(db, "almacenes", "almacen_cigarro", "entradas")
+          : collection(db, "almacenes", "almacen_cigarro", "salidas");
+        await addDoc(refPath, movimiento);
+
+        alert(`✅ Ajuste registrado (${tipo.toUpperCase()}) con folio ${folio}`);
+        e.target.value = "";
+      } catch (err) {
+        console.error("Error guardando ajuste:", err);
+        alert("❌ Error al guardar el ajuste.");
+      }
     });
 
-    onSnapshot(entradasRef, snap=>{
-      mapEntradas.clear();
-      snap.forEach(doc=>{
-        const m = doc.data();
-        const items = Array.isArray(m.productos)? m.productos : [m];
-        items.forEach(it=>{
-          const codigo = (it.codigo || it.codigoBarra || it.id || "")+"";
-          if(!codigo) return;
-          const cant = Number(it.cantidad||0);
-          const prev = mapEntradas.get(codigo) || { cantidad:0 };
-          prev.cantidad += cant;
-          mapEntradas.set(codigo, prev);
-        });
-      });
-      render();
-    });
+    $tbody.appendChild(tr);
+    totItems++;
+    totalStock += stock;
+    totalCosto += costoTotal;
+  });
 
-    onSnapshot(salidasRef, snap=>{
-      mapSalidas.clear();
-      snap.forEach(doc=>{
-        const m = doc.data();
-        const items = Array.isArray(m.productos)? m.productos : [m];
-        items.forEach(it=>{
-          const codigo = (it.codigo || it.codigoBarra || it.id || "")+"";
-          if(!codigo) return;
-          const cant = Number(it.cantidad||0);
-          const prev = mapSalidas.get(codigo) || { cantidad:0 };
-          prev.cantidad += cant;
-          mapSalidas.set(codigo, prev);
-        });
-      });
-      render();
-    });
+  $badge.textContent = `Productos: ${totItems} · Piezas totales: ${totalStock} · Total: ${fmtMoneda(totalCosto)}`;
+}
 
+// Suscripciones en tiempo real
+
+// === Productos ===
+onSnapshot(productosRef, snap => {
+  mapProductos.clear();
+  snap.forEach(doc => {
+    const p = doc.data();
+    const desc  = (p.concepto || p.Concepto || "-") + "";
+    const codB  = (p.codigoBarra || p.CodigoBarra || "") + "";
+    const costo = Number(p.costoSinImpuesto || 0);
+    if (codB) mapProductos.set(codB, { descripcion: desc, costo });
+    if (!mapProductos.has(doc.id)) mapProductos.set(doc.id, { descripcion: desc, costo });
+  });
+  render();
+});
+
+// === Entradas (manuales o ajustes) ===
+onSnapshot(entradasRef, snap => {
+  mapEntradas.clear();
+  snap.forEach(doc => {
+    const m = doc.data();
+    const items = Array.isArray(m.productos) ? m.productos : [m];
+    items.forEach(it => {
+      const codigo = (it.codigo || it.codigoBarra || it.id || "") + "";
+      if (!codigo) return;
+      const cant = Number(it.cantidad || 0);
+      const prev = mapEntradas.get(codigo) || { cantidad: 0 };
+      prev.cantidad += cant;
+      mapEntradas.set(codigo, prev);
+    });
+  });
+  render();
+});
+
+// === Entradas automáticas desde facturas clasificadas ===
+import { collection as colFact } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+const facturasRef = colFact(db, "facturas_pdd");
+
+onSnapshot(facturasRef, snap => {
+  snap.forEach(doc => {
+    const data = doc.data();
+    if (data.destino !== "almacen_cigarro") return; // solo almacén de cigarro
+    if (!Array.isArray(data.conceptos_detalle)) return;
+
+    data.conceptos_detalle.forEach(it => {
+      const codigo = (it.productoId || it.productoInterno || "") + "";
+      if (!codigo) return;
+      const cant = Number(it.cantidadTotal || 0);
+      const prev = mapEntradas.get(codigo) || { cantidad: 0 };
+      prev.cantidad += cant;
+      mapEntradas.set(codigo, prev);
+    });
+  });
+  render();
+});
+
+// === Salidas ===
+onSnapshot(salidasRef, snap => {
+  mapSalidas.clear();
+  snap.forEach(doc => {
+    const m = doc.data();
+    const items = Array.isArray(m.productos) ? m.productos : [m];
+    items.forEach(it => {
+      const codigo = (it.codigo || it.codigoBarra || it.id || "") + "";
+      if (!codigo) return;
+      const cant = Number(it.cantidad || 0);
+      const prev = mapSalidas.get(codigo) || { cantidad: 0 };
+      prev.cantidad += cant;
+      mapSalidas.set(codigo, prev);
+    });
+  });
+  render();
+});
     // Exportar Excel (solo 4 columnas)
     window.exportarExcel = function(){
       const tabla = document.getElementById("tablaInventario");
