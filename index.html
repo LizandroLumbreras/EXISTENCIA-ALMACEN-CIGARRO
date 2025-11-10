@@ -265,9 +265,44 @@
       });
     }
 
-    actualizarEntradas();
-    onSnapshot(entradasRef, actualizarEntradas);
-    onSnapshot(collection(db, "facturas_pdd"), actualizarEntradas);
+// === Entradas en tiempo real sin duplicar ===
+onSnapshot(entradasRef, snap => {
+  mapEntradas.clear();
+
+  // --- Entradas manuales ---
+  snap.forEach(doc => {
+    const m = doc.data();
+    if (Array.isArray(m.productos)) {
+      m.productos.forEach(it => {
+        const codigo = (it.codigo || it.id || "") + "";
+        if (!codigo) return;
+        const cant = Number(it.cantidad || 0);
+        const prev = mapEntradas.get(codigo) || { cantidad: 0 };
+        prev.cantidad += cant;
+        mapEntradas.set(codigo, prev);
+      });
+    }
+  });
+
+  // --- Entradas automáticas desde facturas ---
+  getDocs(collection(db, "facturas_pdd")).then(snapshot => {
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      if (data.destino !== "almacen_cigarro") return;
+      if (!Array.isArray(data.conceptos_detalle)) return;
+
+      data.conceptos_detalle.forEach(it => {
+        const codigo = (it.productoId || "") + "";
+        if (!codigo) return;
+        const cant = Number(it.cantidadTotal || it.cantidad || 0);
+        const prev = mapEntradas.get(codigo) || { cantidad: 0 };
+        prev.cantidad += cant;
+        mapEntradas.set(codigo, prev);
+      });
+    });
+    render();
+  });
+});
 
     // --- Salidas ---
     onSnapshot(salidasRef, snap => {
