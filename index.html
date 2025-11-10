@@ -183,40 +183,52 @@
       for (const aj of ajustesPendientes) {
         const valor = Number(aj.cantidad);
         if (!valor) continue;
-        const tipo = valor > 0 ? "entrada" : "salida";
-        const folio = await generarFolio(tipo);
-        const movimiento = {
-          folio,
-          fecha: new Date().toLocaleString("es-MX"),
-          origen: "AJUSTE MANUAL",
-          entrega: "AJUSTE",
-          productos: [{
-            id: aj.codigo,
-            codigo: aj.codigo,
-            descripcion: aj.descripcion,
-            cantidad: Math.abs(valor),
-            unidad: "PZA"
-          }]
-        };
+// --- AJUSTE DE STOCK DIRECTO ---
+const stockActual = (mapEntradas.get(aj.codigo)?.cantidad || 0) - (mapSalidas.get(aj.codigo)?.cantidad || 0);
+const diferencia = valor - stockActual;
 
-        try {
-          const refPath = tipo === "entrada" ? entradasRef : salidasRef;
-          await addDoc(refPath, movimiento);
+if (diferencia === 0) {
+  console.log(`Sin cambio en ${aj.codigo}`);
+  continue;
+}
 
-          // Actualiza en vivo sin recargar
-          if (tipo === "entrada") {
-            const prev = mapEntradas.get(aj.codigo) || { cantidad: 0 };
-            prev.cantidad += Math.abs(valor);
-            mapEntradas.set(aj.codigo, prev);
-          } else {
-            const prev = mapSalidas.get(aj.codigo) || { cantidad: 0 };
-            prev.cantidad += Math.abs(valor);
-            mapSalidas.set(aj.codigo, prev);
-          }
-          render();
-        } catch (err) {
-          console.error("Error guardando ajuste:", err);
-        }
+const tipo = diferencia > 0 ? "entrada" : "salida";
+const folio = await generarFolio(tipo);
+
+const movimiento = {
+  folio,
+  fecha: new Date().toLocaleString("es-MX"),
+  origen: "AJUSTE MANUAL",
+  entrega: "AJUSTE",
+  productos: [{
+    id: aj.codigo,
+    codigo: aj.codigo,
+    descripcion: aj.descripcion,
+    cantidad: Math.abs(diferencia),
+    unidad: "PZA"
+  }]
+};
+
+try {
+  const refPath = tipo === "entrada" ? entradasRef : salidasRef;
+  await addDoc(refPath, movimiento);
+
+  // Aplica el cambio directo al mapa
+  if (tipo === "entrada") {
+    const prev = mapEntradas.get(aj.codigo) || { cantidad: 0 };
+    prev.cantidad += Math.abs(diferencia);
+    mapEntradas.set(aj.codigo, prev);
+  } else {
+    const prev = mapSalidas.get(aj.codigo) || { cantidad: 0 };
+    prev.cantidad += Math.abs(diferencia);
+    mapSalidas.set(aj.codigo, prev);
+  }
+
+  console.log(`✔ Ajuste aplicado a ${aj.codigo}: nuevo stock = ${valor}`);
+  render();
+} catch (err) {
+  console.error("Error guardando ajuste:", err);
+}
       }
 
       alert(`✅ ${ajustesPendientes.length} ajustes aplicados correctamente.`);
