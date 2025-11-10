@@ -140,14 +140,15 @@
         const input = tr.querySelector("input");
         input.addEventListener("change", e => {
           tr.style.background = "#fff7b3";
-          const valor = Number(e.target.value);
-          if (!valor) return;
-          ajustesPendientes.push({
-            codigo,
-            descripcion: prod.descripcion,
-            cantidad: valor,
-          });
-          e.target.style.background = "#f9f871";
+const valor = Number(e.target.value);
+if (isNaN(valor)) return; // permite 0 y negativos
+ajustesPendientes = ajustesPendientes.filter(a => a.codigo !== codigo);
+ajustesPendientes.push({
+  codigo,
+  descripcion: prod.descripcion,
+  cantidad: valor,
+});
+e.target.style.background = "#f9f871";
         });
 
         $tbody.appendChild(tr);
