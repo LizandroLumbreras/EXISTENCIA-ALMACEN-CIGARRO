@@ -6,22 +6,47 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
- body{ font-family: Arial, sans-serif; background:#f4f4f4; padding:20px; }
- h2{ color:#00416A; font-size:26px; margin-bottom:20px; }
+ body{
+   font-family: Arial, sans-serif;
+   background:#f4f4f4;
+   padding:20px;
+ }
+ h2{
+   color:#00416A;
+   font-size:26px;
+   margin-bottom:20px;
+ }
  table{
-   width:100%; border-collapse:collapse; background:white; margin-top:15px;
+   width:100%;
+   border-collapse:collapse;
+   background:white;
+   margin-top:15px;
  }
  th,td{
-   border:1px solid #ccc; padding:10px; text-align:center; font-size:15px;
+   border:1px solid #ccc;
+   padding:10px;
+   text-align:center;
+   font-size:15px;
  }
- th{ background:#00416A; color:white; }
+ th{
+   background:#00416A;
+   color:white;
+ }
  .positivo{ color:green; font-weight:bold; }
  .negativo{ color:red; font-weight:bold; }
  .btn{
-   margin-top:20px; padding:12px 20px; background:#00416A; color:white;
-   border:none; border-radius:6px; font-size:16px; cursor:pointer;
+   margin-top:20px; 
+   padding:12px 20px; 
+   background:#00416A; 
+   color:white; 
+   border:none; 
+   border-radius:6px; 
+   font-size:16px; 
+   cursor:pointer;
  }
- .btnBase{ background:#0a7d00; }
+ .btnBase{
+   background:#0a7d00;
+ }
 </style>
 </head>
 
@@ -52,14 +77,14 @@
 
 <script type="module">
 
-// =====================================================================
+// ---------------------------------------------------------------------
 // FIREBASE
-// =====================================================================
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+// ---------------------------------------------------------------------
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { 
   getFirestore, collection, doc, query, where,
   getDocs, onSnapshot, addDoc, setDoc
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCK5nb6u2CGRJ8AB1aPlRn54b97bdeAFeM",
@@ -73,9 +98,9 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-// =====================================================================
-// VARIABLES
-// =====================================================================
+// ---------------------------------------------------------------------
+// VARIABLES BASE
+// ---------------------------------------------------------------------
 let productos = {};
 let inventarioBase = {};
 let entradasNuevas = {};
@@ -88,18 +113,19 @@ let salidasListas = false;
 
 const fechaCorte = new Date("2025-11-24T00:00:00");
 
-// Normalizar código
+// CODIGO NORMALIZADO
 function normCodigo(cod){
-  return cod ? String(cod).trim() : "";
+  if (!cod) return "";
+  return cod.toString().trim().padStart(12, "0");
 }
 
-// =====================================================================
-// CARGAR PRODUCTOS ACTIVOS DEL DEPARTAMENTO CIGARROS
-// =====================================================================
-async function cargarProductos() {
+// ---------------------------------------------------------------------
+// CARGAR PRODUCTOS ACTIVOS DE CIGARRO
+// ---------------------------------------------------------------------
+async function cargarProductosCigarro() {
 
   const q = query(
-    collection(db, "productos"),
+    collection(db, "productos"), 
     where("activo", "==", true),
     where("departamento", "==", "CIGARROS")
   );
@@ -108,13 +134,12 @@ async function cargarProductos() {
 
   snap.forEach(docu => {
     const d = docu.data();
-    const codigo = normCodigo(d.codigoBarra);
 
-    if (!codigo) return;
+    const codigo = normCodigo(d.codigoBarra || d.productoId || "");
 
     productos[codigo] = {
-      descripcion: d.concepto || d.descripcion || "-",
-      marca: d.marca || "SIN MARCA"
+      marca: d.marca || "SIN MARCA",
+      descripcion: d.concepto || d.descripcion || "-"
     };
   });
 
@@ -122,48 +147,54 @@ async function cargarProductos() {
   intentarDibujar();
 }
 
-// =====================================================================
-// INVENTARIO BASE
-// =====================================================================
+// ---------------------------------------------------------------------
+// CARGAR INVENTARIO BASE
+// ---------------------------------------------------------------------
 async function cargarBase(){
-  const snap = await getDocs(
-    collection(db, "almacenes/almacen_cigarro/inventario_base")
-  );
+  const ref = collection(db, "almacenes/almacen_cigarro/inventario_base");
+  const snap = await getDocs(ref);
 
   snap.forEach(docu => {
-    inventarioBase[normCodigo(docu.id)] = docu.data().existencia || 0;
+    const codigo = normCodigo(docu.id);
+    inventarioBase[codigo] = docu.data().existencia || 0;
   });
 
   baseLista = true;
   intentarDibujar();
 }
 
-// =====================================================================
-// ENTRADAS
-// =====================================================================
-function cargarEntradas(){
-  const ref = collection(db, "almacenes/almacen_cigarro/entradas");
+// ---------------------------------------------------------------------
+// NUEVAS ENTRADAS (PDD CIGARRO)
+// ---------------------------------------------------------------------
+async function cargarEntradas(){
+  const ref = collection(db, "almacenes/almacen_cigarrro/entradas");
 
   onSnapshot(ref, snap => {
 
     entradasNuevas = {};
 
     snap.forEach(docu => {
-      const data = docu.data();
-      const fecha = data.fecha?.toDate?.() || new Date(data.fecha);
 
+      const data = docu.data();
+
+      const fecha = new Date(data.fecha || data.timestamp);
       if (fecha <= fechaCorte) return;
 
-      if (!Array.isArray(data.productos)) return;
+      if (Array.isArray(data.items)) {
 
-      data.productos.forEach(it => {
-        const codigo = normCodigo(it.codigo || it.codigoBarra);
-        const cant = Number(it.cantidad || 0);
-        if (!codigo) return;
+        data.items.forEach(item => {
 
-        if (!entradasNuevas[codigo]) entradasNuevas[codigo] = 0;
-        entradasNuevas[codigo] += cant;
-      });
+          const codigo = normCodigo(item.productoId || item.codigo || "");
+          const cantPiezas = Number(item.cantidadTotal || 0);
+
+          if (!entradasNuevas[codigo])
+            entradasNuevas[codigo] = 0;
+
+          entradasNuevas[codigo] += cantPiezas;
+        });
+
+      }
+
     });
 
     entradasListas = true;
@@ -171,11 +202,11 @@ function cargarEntradas(){
   });
 }
 
-// =====================================================================
-// SALIDAS
-// =====================================================================
+// ---------------------------------------------------------------------
+// NUEVAS SALIDAS
+// ---------------------------------------------------------------------
 function cargarSalidas(){
-  const ref = collection(db, "almacenes/almacen_cigarro/salidas");
+  const ref = collection(db, "almacenes/almacen_cigarro/salidas1.0");
 
   onSnapshot(ref, snap => {
 
@@ -187,16 +218,20 @@ function cargarSalidas(){
 
       if (fecha <= fechaCorte) return;
 
-      if (!Array.isArray(data.productos)) return;
+      if (Array.isArray(data.productos)) {
+        data.productos.forEach(item => {
 
-      data.productos.forEach(it => {
-        const codigo = normCodigo(it.codigo || it.codigoBarra);
-        const cant = Number(it.cantidad || 0);
-        if (!codigo) return;
+          const codigo = normCodigo(item.codigo || item.codigoBarra || "");
+          const cant = Number(item.cantidad || 0);
 
-        if (!salidasNuevas[codigo]) salidasNuevas[codigo] = 0;
-        salidasNuevas[codigo] += cant;
-      });
+          if (!salidasNuevas[codigo]) 
+            salidasNuevas[codigo] = 0;
+
+          salidasNuevas[codigo] += cant;
+
+        });
+      }
+
     });
 
     salidasListas = true;
@@ -204,17 +239,15 @@ function cargarSalidas(){
   });
 }
 
-// =====================================================================
-// RENDERIZAR TABLA
-// =====================================================================
+// ---------------------------------------------------------------------
+// DIBUJAR TABLA
+// ---------------------------------------------------------------------
 function intentarDibujar(){
-  if (productosListos && baseLista && entradasListas && salidasListas){
-    dibujar();
-  }
+  if (!productosListos || !baseLista || !entradasListas || !salidasListas) return;
+  dibujar();
 }
 
 function dibujar(){
-
   const tabla = document.getElementById("tablaInventario");
   tabla.innerHTML = "";
 
@@ -241,22 +274,21 @@ function dibujar(){
 
   });
 
-  // ORDENAR MARCAS
   Object.keys(porMarca).sort().forEach(marca => {
 
     tabla.innerHTML += `
       <tr>
         <td colspan="8" 
-            style="background:#00416A;color:white;font-size:20px;font-weight:bold;">
+            style="background:linear-gradient(to right,#00416A,#0c6cbd); color:white; font-size:20px; font-weight:bold;">
           ${marca}
         </td>
       </tr>
     `;
 
-    // Ordenar códigos dentro de la marca
     porMarca[marca].sort((a,b)=> a.codigo.localeCompare(b.codigo));
 
     porMarca[marca].forEach(p => {
+
       tabla.innerHTML += `
         <tr>
           <td>${p.codigo}</td>
@@ -273,7 +305,7 @@ function dibujar(){
                    oninput="calcularDiferencia('${p.codigo}', ${p.existencia})">
           </td>
 
-          <td id="dif_${p.codigo}" style="font-weight:bold;color:#555;">0</td>
+          <td id="dif_${p.codigo}" style="font-weight:bold; color:#555;">0</td>
         </tr>
       `;
     });
@@ -286,25 +318,26 @@ function dibujar(){
 
 }
 
-// =====================================================================
+// ---------------------------------------------------------------------
 // DIFERENCIA
-// =====================================================================
+// ---------------------------------------------------------------------
 window.calcularDiferencia = function(codigo, existencia){
-  const fis = Number(document.getElementById("fisico_"+codigo).value);
+  const fisico = Number(document.getElementById("fisico_"+codigo).value);
   const celda = document.getElementById("dif_"+codigo);
-  if (isNaN(fis)){
-    celda.textContent = "0";
-    celda.style.color = "#555";
-    return;
+
+  if (isNaN(fisico)) {
+    celda.textContent = "0"; celda.style.color="#555"; return;
   }
-  const dif = fis - existencia;
+
+  const dif = fisico - existencia;
   celda.textContent = dif;
+
   celda.style.color = dif > 0 ? "green" : dif < 0 ? "red" : "#555";
 };
 
-// =====================================================================
+// ---------------------------------------------------------------------
 // GUARDAR AJUSTES
-// =====================================================================
+// ---------------------------------------------------------------------
 async function guardarAjustesInventario(){
 
   let movimientos = [];
@@ -334,7 +367,7 @@ async function guardarAjustesInventario(){
   });
 
   if (movimientos.length === 0){
-    alert("No hay ajustes por aplicar.");
+    alert("No hay ajustes por aplicar."); 
     return;
   }
 
@@ -342,8 +375,11 @@ async function guardarAjustesInventario(){
 
   await addDoc(collection(db, "almacenes/almacen_cigarro/entradas"), {
     tipo: "AJUSTE",
+    subTipo: movimientos.some(x => x.tipoMovimiento === "SALIDA_AJUSTE")
+            ? "MIXTO"
+            : "ENTRADA_AJUSTE",
     fecha,
-    productos: movimientos
+    items: movimientos
   });
 
   for (const codigo of Object.keys(nuevosBases)){
@@ -361,50 +397,55 @@ async function guardarAjustesInventario(){
   alert("✔ Ajuste registrado correctamente.");
 }
 
-// =====================================================================
+// ---------------------------------------------------------------------
 // INICIALIZAR INVENTARIO BASE
-// =====================================================================
-async function inicializarInventarioBase(){
+// ---------------------------------------------------------------------
+async function inicializarInventarioBase() {
 
-  if (!confirm("¿Seguro quieres inicializar el inventario base?\nSolo 1 vez.")) return;
+  if (!confirm("¿Seguro que deseas crear el inventario base inicial?\nSOLO se ejecuta UNA VEZ.")) {
+    return;
+  }
 
   const fecha = new Date();
-  let total = 0;
+  let totalGuardados = 0;
 
-  for (const codigo of Object.keys(productos)){
-    const ent = entradasNuevas[codigo] || 0;
-    const sal = salidasNuevas[codigo] || 0;
-    const existencia = ent - sal;
+  for (const codigo of Object.keys(productos)) {
+
+    const baseActual = inventarioBase[codigo] || 0;
+    const entradas = entradasNuevas[codigo] || 0;
+    const salidas  = salidasNuevas[codigo] || 0;
+
+    const existencia = baseActual + entradas - salidas;
 
     await setDoc(
       doc(db, "almacenes/almacen_cigarro/inventario_base", codigo),
       {
-        existencia,
+        existencia: existencia,
         descripcion: productos[codigo].descripcion,
         marca: productos[codigo].marca,
         actualizadoEn: fecha
       }
     );
 
-    total++;
+    totalGuardados++;
   }
 
-  alert("✔ Inventario base creado para " + total + " productos.");
+  alert("✔ Inventario base creado para " + totalGuardados + " productos.");
 }
 
-// =====================================================================
+// ---------------------------------------------------------------------
 // EVENTOS
-// =====================================================================
+// ---------------------------------------------------------------------
 document.getElementById("btnGuardarAjustes")
   .addEventListener("click", guardarAjustesInventario);
 
 document.getElementById("btnInicializarBase")
   .addEventListener("click", inicializarInventarioBase);
 
-// =====================================================================
+// ---------------------------------------------------------------------
 // EJECUTAR
-// =====================================================================
-await cargarProductos();
+// ---------------------------------------------------------------------
+await cargarProductosCigarro();
 await cargarBase();
 cargarEntradas();
 cargarSalidas();
