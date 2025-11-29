@@ -77,9 +77,6 @@
 
 <script type="module">
 
-// ------------------------------------------------------
-// FIREBASE
-// ------------------------------------------------------
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { 
   getFirestore, collection, doc, query, where,
@@ -98,9 +95,9 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-// ------------------------------------------------------
+// ================================
 // VARIABLES
-// ------------------------------------------------------
+// ================================
 let productos = {};
 let inventarioBase = {};
 let entradasNuevas = {};
@@ -111,16 +108,18 @@ let baseLista = false;
 let entradasListas = false;
 let salidasListas = false;
 
+// FECHA CORTE IGUAL QUE ZAPATA
 const fechaCorte = new Date("2025-11-24T00:00:00");
 
+// NORMALIZACIÓN
 function normCodigo(cod){
   if (!cod) return "";
   return cod.toString().trim().padStart(12, "0");
 }
 
-// ------------------------------------------------------
-// CARGAR PRODUCTOS CIGARRO
-// ------------------------------------------------------
+// ================================
+// CARGAR PRODUCTOS ACTIVOS DE CIGARRO
+// ================================
 async function cargarProductosCigarro() {
 
   const q = query(
@@ -146,9 +145,9 @@ async function cargarProductosCigarro() {
   intentarDibujar();
 }
 
-// ------------------------------------------------------
+// ================================
 // CARGAR INVENTARIO BASE
-// ------------------------------------------------------
+// ================================
 async function cargarBase(){
   const ref = collection(db, "almacenes/almacen_cigarro/inventario_base");
   const snap = await getDocs(ref);
@@ -162,9 +161,9 @@ async function cargarBase(){
   intentarDibujar();
 }
 
-// ------------------------------------------------------
+// ================================
 // CARGAR ENTRADAS (PDD CIGARRO)
-// ------------------------------------------------------
+// ================================
 function cargarEntradas(){
 
   const ref = collection(db, "almacenes/almacen_cigarro/entradas");
@@ -193,9 +192,9 @@ function cargarEntradas(){
   });
 }
 
-// ------------------------------------------------------
+// ================================
 // CARGAR SALIDAS
-// ------------------------------------------------------
+// ================================
 function cargarSalidas(){
 
   const ref = collection(db, "almacenes/almacen_cigarro/salidas1.0");
@@ -206,8 +205,8 @@ function cargarSalidas(){
 
     snap.forEach(docu => {
       const data = docu.data();
-
       const fecha = data.timestamp?.toDate?.() || new Date(data.timestamp);
+
       if (fecha <= fechaCorte) return;
 
       if (Array.isArray(data.productos)) {
@@ -224,9 +223,9 @@ function cargarSalidas(){
   });
 }
 
-// ------------------------------------------------------
+// ================================
 // DIBUJAR TABLA
-// ------------------------------------------------------
+// ================================
 function intentarDibujar(){
   if (!productosListos || !baseLista || !entradasListas || !salidasListas) return;
   dibujar();
@@ -299,9 +298,9 @@ function dibujar(){
 
 }
 
-// ------------------------------------------------------
+// ================================
 // DIFERENCIA
-// ------------------------------------------------------
+// ================================
 window.calcularDiferencia = function(codigo, existencia){
   const fisico = Number(document.getElementById("fisico_"+codigo).value);
   const celda = document.getElementById("dif_"+codigo);
@@ -318,9 +317,9 @@ window.calcularDiferencia = function(codigo, existencia){
   celda.style.color = dif > 0 ? "green" : dif < 0 ? "red" : "#555";
 };
 
-// ------------------------------------------------------
-// GUARDAR AJUSTES  (CORREGIDO)
-// ------------------------------------------------------
+// ================================
+// GUARDAR AJUSTES  (IGUAL QUE ZAPATA)
+// ================================
 async function guardarAjustesInventario(){
 
   let movimientos = [];
@@ -334,11 +333,7 @@ async function guardarAjustesInventario(){
     const existencia = base + ent - sal;
 
     const fisInput = document.getElementById("fisico_"+codigo)?.value;
-
-    // 🔥 CORRECCIÓN IMPORTANTE
-    if (fisInput === "" || fisInput === null || fisInput === undefined) {
-        return; // NO detiene el ciclo, solo salta este producto
-    }
+    if (fisInput === "" || fisInput === null || fisInput === undefined) return;
 
     const fis = Number(fisInput);
     const dif = fis - existencia;
@@ -383,9 +378,9 @@ async function guardarAjustesInventario(){
   alert("✔ Ajuste registrado correctamente.");
 }
 
-// ------------------------------------------------------
-// INICIALIZAR BASE
-// ------------------------------------------------------
+// ================================
+// INICIALIZAR INVENTARIO BASE
+// ================================
 async function inicializarInventarioBase() {
 
   if (!confirm("¿Seguro que deseas crear el inventario base inicial?\nSOLO se ejecuta UNA VEZ.")) {
@@ -419,18 +414,18 @@ async function inicializarInventarioBase() {
   alert("✔ Inventario base creado para " + totalGuardados + " productos.");
 }
 
-// ------------------------------------------------------
+// ================================
 // EVENTOS
-// ------------------------------------------------------
+// ================================
 document.getElementById("btnGuardarAjustes")
   .addEventListener("click", guardarAjustesInventario);
 
 document.getElementById("btnInicializarBase")
   .addEventListener("click", inicializarInventarioBase);
 
-// ------------------------------------------------------
+// ================================
 // EJECUTAR
-// ------------------------------------------------------
+// ================================
 await cargarProductosCigarro();
 await cargarBase();
 cargarEntradas();
