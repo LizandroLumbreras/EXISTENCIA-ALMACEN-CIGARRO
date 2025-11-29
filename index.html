@@ -77,9 +77,9 @@
 
 <script type="module">
 
-// ---------------------------------------------------------------------
+// ------------------------------------------------------
 // FIREBASE
-// ---------------------------------------------------------------------
+// ------------------------------------------------------
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { 
   getFirestore, collection, doc, query, where,
@@ -98,9 +98,9 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-// ---------------------------------------------------------------------
-// VARIABLES BASE
-// ---------------------------------------------------------------------
+// ------------------------------------------------------
+// VARIABLES
+// ------------------------------------------------------
 let productos = {};
 let inventarioBase = {};
 let entradasNuevas = {};
@@ -113,15 +113,14 @@ let salidasListas = false;
 
 const fechaCorte = new Date("2025-11-24T00:00:00");
 
-// CODIGO NORMALIZADO
 function normCodigo(cod){
   if (!cod) return "";
   return cod.toString().trim().padStart(12, "0");
 }
 
-// ---------------------------------------------------------------------
-// CARGAR PRODUCTOS ACTIVOS DE CIGARRO
-// ---------------------------------------------------------------------
+// ------------------------------------------------------
+// CARGAR PRODUCTOS CIGARRO
+// ------------------------------------------------------
 async function cargarProductosCigarro() {
 
   const q = query(
@@ -147,9 +146,9 @@ async function cargarProductosCigarro() {
   intentarDibujar();
 }
 
-// ---------------------------------------------------------------------
+// ------------------------------------------------------
 // CARGAR INVENTARIO BASE
-// ---------------------------------------------------------------------
+// ------------------------------------------------------
 async function cargarBase(){
   const ref = collection(db, "almacenes/almacen_cigarro/inventario_base");
   const snap = await getDocs(ref);
@@ -163,10 +162,11 @@ async function cargarBase(){
   intentarDibujar();
 }
 
-// ---------------------------------------------------------------------
-// NUEVAS ENTRADAS (PDD CIGARRO)
-// ---------------------------------------------------------------------
-async function cargarEntradas(){
+// ------------------------------------------------------
+// CARGAR ENTRADAS (PDD CIGARRO)
+// ------------------------------------------------------
+function cargarEntradas(){
+
   const ref = collection(db, "almacenes/almacen_cigarro/entradas");
 
   onSnapshot(ref, snap => {
@@ -174,27 +174,18 @@ async function cargarEntradas(){
     entradasNuevas = {};
 
     snap.forEach(docu => {
-
       const data = docu.data();
-
       const fecha = new Date(data.fecha || data.timestamp);
+
       if (fecha <= fechaCorte) return;
 
       if (Array.isArray(data.items)) {
-
         data.items.forEach(item => {
-
           const codigo = normCodigo(item.productoId || item.codigo || "");
           const cantPiezas = Number(item.cantidadTotal || 0);
-
-          if (!entradasNuevas[codigo])
-            entradasNuevas[codigo] = 0;
-
-          entradasNuevas[codigo] += cantPiezas;
+          entradasNuevas[codigo] = (entradasNuevas[codigo] || 0) + cantPiezas;
         });
-
       }
-
     });
 
     entradasListas = true;
@@ -202,10 +193,11 @@ async function cargarEntradas(){
   });
 }
 
-// ---------------------------------------------------------------------
-// NUEVAS SALIDAS
-// ---------------------------------------------------------------------
+// ------------------------------------------------------
+// CARGAR SALIDAS
+// ------------------------------------------------------
 function cargarSalidas(){
+
   const ref = collection(db, "almacenes/almacen_cigarro/salidas1.0");
 
   onSnapshot(ref, snap => {
@@ -214,24 +206,17 @@ function cargarSalidas(){
 
     snap.forEach(docu => {
       const data = docu.data();
-      const fecha = data.timestamp?.toDate?.() || new Date(data.timestamp);
 
+      const fecha = data.timestamp?.toDate?.() || new Date(data.timestamp);
       if (fecha <= fechaCorte) return;
 
       if (Array.isArray(data.productos)) {
         data.productos.forEach(item => {
-
           const codigo = normCodigo(item.codigo || item.codigoBarra || "");
           const cant = Number(item.cantidad || 0);
-
-          if (!salidasNuevas[codigo]) 
-            salidasNuevas[codigo] = 0;
-
-          salidasNuevas[codigo] += cant;
-
+          salidasNuevas[codigo] = (salidasNuevas[codigo] || 0) + cant;
         });
       }
-
     });
 
     salidasListas = true;
@@ -239,22 +224,22 @@ function cargarSalidas(){
   });
 }
 
-// ---------------------------------------------------------------------
+// ------------------------------------------------------
 // DIBUJAR TABLA
-// ---------------------------------------------------------------------
+// ------------------------------------------------------
 function intentarDibujar(){
   if (!productosListos || !baseLista || !entradasListas || !salidasListas) return;
   dibujar();
 }
 
 function dibujar(){
+
   const tabla = document.getElementById("tablaInventario");
   tabla.innerHTML = "";
 
   let porMarca = {};
 
   Object.keys(productos).forEach(codigo => {
-
     const p = productos[codigo];
     const base = inventarioBase[codigo] || 0;
     const ent = entradasNuevas[codigo] || 0;
@@ -271,7 +256,6 @@ function dibujar(){
       sal,
       existencia
     });
-
   });
 
   Object.keys(porMarca).sort().forEach(marca => {
@@ -279,7 +263,7 @@ function dibujar(){
     tabla.innerHTML += `
       <tr>
         <td colspan="8" 
-            style="background:linear-gradient(to right,#00416A,#0c6cbd); color:white; font-size:20px; font-weight:bold;">
+            style="background:linear-gradient(to right,#00416A,#0c6cbd);color:white;font-size:20px;font-weight:bold;">
           ${marca}
         </td>
       </tr>
@@ -305,28 +289,27 @@ function dibujar(){
                    oninput="calcularDiferencia('${p.codigo}', ${p.existencia})">
           </td>
 
-          <td id="dif_${p.codigo}" style="font-weight:bold; color:#555;">0</td>
+          <td id="dif_${p.codigo}" style="font-weight:bold;color:#555;">0</td>
         </tr>
       `;
     });
 
-    tabla.innerHTML += `
-      <tr><td colspan="8" style="height:8px;background:#eaeaea;"></td></tr>
-    `;
-
+    tabla.innerHTML += `<tr><td colspan="8" style="height:8px;background:#eaeaea;"></td></tr>`;
   });
 
 }
 
-// ---------------------------------------------------------------------
+// ------------------------------------------------------
 // DIFERENCIA
-// ---------------------------------------------------------------------
+// ------------------------------------------------------
 window.calcularDiferencia = function(codigo, existencia){
   const fisico = Number(document.getElementById("fisico_"+codigo).value);
   const celda = document.getElementById("dif_"+codigo);
 
   if (isNaN(fisico)) {
-    celda.textContent = "0"; celda.style.color="#555"; return;
+    celda.textContent = "0"; 
+    celda.style.color="#555"; 
+    return;
   }
 
   const dif = fisico - existencia;
@@ -335,9 +318,9 @@ window.calcularDiferencia = function(codigo, existencia){
   celda.style.color = dif > 0 ? "green" : dif < 0 ? "red" : "#555";
 };
 
-// ---------------------------------------------------------------------
-// GUARDAR AJUSTES
-// ---------------------------------------------------------------------
+// ------------------------------------------------------
+// GUARDAR AJUSTES  (CORREGIDO)
+// ------------------------------------------------------
 async function guardarAjustesInventario(){
 
   let movimientos = [];
@@ -350,10 +333,16 @@ async function guardarAjustesInventario(){
     const sal = salidasNuevas[codigo] || 0;
     const existencia = base + ent - sal;
 
-    const fis = Number(document.getElementById("fisico_"+codigo)?.value || "");
-    if (isNaN(fis)) return;
+    const fisInput = document.getElementById("fisico_"+codigo)?.value;
 
+    // 🔥 CORRECCIÓN IMPORTANTE
+    if (fisInput === "" || fisInput === null || fisInput === undefined) {
+        return; // NO detiene el ciclo, solo salta este producto
+    }
+
+    const fis = Number(fisInput);
     const dif = fis - existencia;
+
     if (dif === 0) return;
 
     movimientos.push({
@@ -375,9 +364,6 @@ async function guardarAjustesInventario(){
 
   await addDoc(collection(db, "almacenes/almacen_cigarro/entradas"), {
     tipo: "AJUSTE",
-    subTipo: movimientos.some(x => x.tipoMovimiento === "SALIDA_AJUSTE")
-            ? "MIXTO"
-            : "ENTRADA_AJUSTE",
     fecha,
     items: movimientos
   });
@@ -397,9 +383,9 @@ async function guardarAjustesInventario(){
   alert("✔ Ajuste registrado correctamente.");
 }
 
-// ---------------------------------------------------------------------
-// INICIALIZAR INVENTARIO BASE
-// ---------------------------------------------------------------------
+// ------------------------------------------------------
+// INICIALIZAR BASE
+// ------------------------------------------------------
 async function inicializarInventarioBase() {
 
   if (!confirm("¿Seguro que deseas crear el inventario base inicial?\nSOLO se ejecuta UNA VEZ.")) {
@@ -420,7 +406,7 @@ async function inicializarInventarioBase() {
     await setDoc(
       doc(db, "almacenes/almacen_cigarro/inventario_base", codigo),
       {
-        existencia: existencia,
+        existencia,
         descripcion: productos[codigo].descripcion,
         marca: productos[codigo].marca,
         actualizadoEn: fecha
@@ -433,18 +419,18 @@ async function inicializarInventarioBase() {
   alert("✔ Inventario base creado para " + totalGuardados + " productos.");
 }
 
-// ---------------------------------------------------------------------
+// ------------------------------------------------------
 // EVENTOS
-// ---------------------------------------------------------------------
+// ------------------------------------------------------
 document.getElementById("btnGuardarAjustes")
   .addEventListener("click", guardarAjustesInventario);
 
 document.getElementById("btnInicializarBase")
   .addEventListener("click", inicializarInventarioBase);
 
-// ---------------------------------------------------------------------
+// ------------------------------------------------------
 // EJECUTAR
-// ---------------------------------------------------------------------
+// ------------------------------------------------------
 await cargarProductosCigarro();
 await cargarBase();
 cargarEntradas();
