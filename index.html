@@ -2,513 +2,214 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<title>Inventario – Almacén Cigarro</title>
+<title>Inventario Real – Almacén Cigarro</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
- body{
-   font-family: Arial, sans-serif;
-   background:#f4f4f4;
-   padding:20px;
- }
- h2{
-   color:#00416A;
-   font-size:26px;
-   margin-bottom:20px;
- }
- table{
-   width:100%;
-   border-collapse:collapse;
-   background:white;
-   margin-top:15px;
- }
- th,td{
-   border:1px solid #ccc;
-   padding:10px;
-   text-align:center;
-   font-size:15px;
- }
- th{
-   background:#00416A;
-   color:white;
- }
- .positivo{ color:green; font-weight:bold; }
- .negativo{ color:red; font-weight:bold; }
- .btn{
-   margin-top:20px; 
-   padding:12px 20px; 
-   background:#00416A; 
-   color:white; 
-   border:none; 
-   border-radius:6px; 
-   font-size:16px; 
-   cursor:pointer;
- }
- .btnBase{
-   background:#0a7d00;
- }
+body{
+  font-family:'Poppins',sans-serif;
+  background:#f4f4f4;
+  padding:20px;
+}
+h2{ color:#00416A; text-align:center; }
+table{
+  width:100%;
+  border-collapse:collapse;
+  background:white;
+}
+th,td{
+  border:1px solid #ccc;
+  padding:8px;
+  text-align:center;
+  font-size:13px;
+}
+th{ background:#00416A; color:white; }
+input[type=number]{ width:90px; }
+button{
+  background:#00416A;
+  color:white;
+  border:none;
+  border-radius:6px;
+  padding:6px 12px;
+  cursor:pointer;
+}
+.marca-row{
+  background:#d9e7f5;
+  font-weight:bold;
+}
+.positivo{color:green;font-weight:bold;}
+.negativo{color:red;font-weight:bold;}
 </style>
 </head>
 
 <body>
 
-<h2>Inventario Total – Almacén Cigarro</h2>
-
-<button id="btnInicializarBase" class="btn btnBase">Inicializar Inventario Base</button>
+<h2>Inventario Real – Almacén Cigarro</h2>
 
 <table>
 <thead>
-   <tr>
-     <th>Código</th>
-     <th>Descripción</th>
-     <th>Base</th>
-     <th>Entradas nuevas</th>
-     <th>Salidas nuevas</th>
-     <th>Existencia</th>
-     <th>Inventario físico</th>
-     <th>Diferencia</th>
-   </tr>
+<tr>
+  <th>Código</th>
+  <th>Descripción</th>
+  <th>Inicial</th>
+  <th>Entradas</th>
+  <th>Salidas</th>
+  <th>Actual</th>
+  <th>Existencia real</th>
+</tr>
 </thead>
-
 <tbody id="tablaInventario"></tbody>
 </table>
 
-<button id="btnGuardarAjustes" class="btn">Guardar ajustes de inventario</button>
+<br>
+<div style="text-align:center">
+  <button onclick="guardarAjustes()">Guardar ajustes realizados</button>
+</div>
 
 <script type="module">
-
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { 
-  getFirestore, collection, doc, query, where,
-  getDocs, onSnapshot, addDoc, setDoc
+import {
+  getFirestore, collection, getDocs, onSnapshot, setDoc, doc
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCK5nb6u2CGRJ8AB1aPlRn54b97bdeAFeM",
   authDomain: "inventariopv-643f1.firebaseapp.com",
   projectId: "inventariopv-643f1",
-  storageBucket: "inventariopv-643f1.appspot.com",
-  messagingSenderId: "96242533231",
-  appId: "1:96242533231:web:aae75a18fbaf9840529e9a"
 };
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-// ================================
-// VARIABLES
-// ================================
-let productos = {};
-let inventarioBase = {};
-let entradasNuevas = {};
-let salidasNuevas = {};
+let productos={}, entradas={}, salidas={}, iniciales={};
 
-let productosListos = false;
-let baseLista = false;
-let entradasListas = false;
-let salidasListas = false;
+const norm = c => (c||"").toString().trim().padStart(12,"0");
 
-// FECHA CORTE IGUAL QUE ZAPATA
-const fechaCorte = new Date("2025-11-24T00:00:00");
+// ================= PRODUCTOS (CIGARROS) =================
+getDocs(collection(db,"productos")).then(s=>{
+  s.forEach(d=>{
+    const x=d.data();
+    if(x.activo!==true || x.departamento!=="CIGARROS") return;
 
-// NORMALIZACIÓN
-function normCodigo(cod){
-  if (!cod) return "";
-  return cod.toString().trim().padStart(12, "0");
-}
-
-// FECHA ROBUSTA (Timestamp / Date / string)
-function parseFechaFirestore(v){
-  if (!v) return null;
-
-  // Firestore Timestamp
-  if (typeof v === "object" && typeof v.toDate === "function") {
-    return v.toDate();
-  }
-
-  // JS Date
-  if (v instanceof Date) return v;
-
-  // number (ms) o string
-  const d = new Date(v);
-  return isNaN(d.getTime()) ? null : d;
-}
-
-// ================================
-// CARGAR PRODUCTOS ACTIVOS DE CIGARRO
-// ================================
-async function cargarProductosCigarro() {
-
-  const q = query(
-    collection(db, "productos"), 
-    where("activo", "==", true),
-    where("departamento", "==", "CIGARROS")
-  );
-
-  const snap = await getDocs(q);
-
-  snap.forEach(docu => {
-    const d = docu.data();
-
-    const codigo = normCodigo(d.codigoBarra || d.productoId || d.productoID || "");
-
-    if (!codigo) return;
-
-    productos[codigo] = {
-      marca: d.marca || "SIN MARCA",
-      descripcion: d.concepto || d.descripcion || "-"
+    productos[norm(x.codigoBarra||x.productoId)] = {
+      descripcion:x.descripcion||x.concepto||"-",
+      marca:x.marca||"SIN MARCA"
     };
   });
+});
 
-  productosListos = true;
-  intentarDibujar();
-}
-
-// ================================
-// CARGAR INVENTARIO BASE
-// ================================
-async function cargarBase(){
-  const ref = collection(db, "almacenes/almacen_cigarro/inventario_base");
-  const snap = await getDocs(ref);
-
-  inventarioBase = {};
-
-  snap.forEach(docu => {
-    const codigo = normCodigo(docu.id);
-    inventarioBase[codigo] = Number(docu.data().existencia || 0);
-  });
-
-  baseLista = true;
-  intentarDibujar();
-}
-
-// ================================
-// CARGAR ENTRADAS (PDD CIGARRO)
-// ================================
-function cargarEntradas(){
-
-  const ref = collection(db, "almacenes/almacen_cigarro/entradas");
-
-  onSnapshot(ref, snap => {
-
-    entradasNuevas = {};
-
-    snap.forEach(docu => {
-      const data = docu.data();
-
-      const fecha = parseFechaFirestore(data.fecha || data.timestamp);
-      if (!fecha) return;
-      if (fecha <= fechaCorte) return;
-
-      // Puede venir como items (tu formato) o productos (otros formatos)
-      const items = Array.isArray(data.items) ? data.items : (Array.isArray(data.productos) ? data.productos : []);
-
-      items.forEach(item => {
-        const codigo = normCodigo(item.productoId || item.productoID || item.codigo || item.codigoBarra || "");
-        if (!codigo) return;
-
-        // Acepta ambos nombres: cantidadTotal (entradas) o cantidad (ajustes antiguos)
-        const cant = Number(item.cantidadTotal ?? item.cantidad ?? 0);
-        if (!cant) return;
-
-        entradasNuevas[codigo] = (entradasNuevas[codigo] || 0) + cant;
-      });
+// ================= ENTRADAS =================
+onSnapshot(collection(db,"almacenes/almacen_cigarro/entradas"),s=>{
+  entradas={};
+  s.forEach(d=>{
+    (d.data().items||[]).forEach(i=>{
+      const c=norm(i.productoId||i.codigo);
+      entradas[c]=(entradas[c]||0)+Number(i.cantidadTotal||0);
     });
-
-    entradasListas = true;
-    intentarDibujar();
   });
-}
-
-// ================================
-// CARGAR SALIDAS
-// ================================
-function cargarSalidas(){
-
-  const ref = collection(db, "almacenes/almacen_cigarro/salidas1.0");
-
-  onSnapshot(ref, snap => {
-
-    salidasNuevas = {};
-
-    snap.forEach(docu => {
-      const data = docu.data();
-      const fecha = parseFechaFirestore(data.fecha || data.timestamp);
-      if (!fecha) return;
-      if (fecha <= fechaCorte) return;
-
-      if (Array.isArray(data.productos)) {
-        data.productos.forEach(item => {
-          const codigo = normCodigo(item.codigo || item.codigoBarra || item.productoId || "");
-          if (!codigo) return;
-
-          const cant = Number(item.cantidad ?? item.cantidadTotal ?? 0);
-          if (!cant) return;
-
-          salidasNuevas[codigo] = (salidasNuevas[codigo] || 0) + cant;
-        });
-      }
-    });
-
-    salidasListas = true;
-    intentarDibujar();
-  });
-}
-
-// ================================
-// DIBUJAR TABLA
-// ================================
-function intentarDibujar(){
-  if (!productosListos || !baseLista || !entradasListas || !salidasListas) return;
   dibujar();
-}
+});
 
+// ================= SALIDAS =================
+onSnapshot(collection(db,"almacenes/almacen_cigarro/salidas1.0"),s=>{
+  salidas={};
+  s.forEach(d=>{
+    (d.data().productos||[]).forEach(i=>{
+      const c=norm(i.codigo);
+      salidas[c]=(salidas[c]||0)+Number(i.cantidad||0);
+    });
+  });
+  dibujar();
+});
+
+// ================= INVENTARIO INICIAL =================
+onSnapshot(collection(db,"almacenes/almacen_cigarro/inventario_base"),s=>{
+  iniciales={};
+  s.forEach(d=>{
+    iniciales[norm(d.id)] = Number(d.data().existencia||0);
+  });
+  dibujar();
+});
+
+// ================= DIBUJAR =================
 function dibujar(){
+  const t=document.getElementById("tablaInventario");
+  t.innerHTML="";
 
-  const tabla = document.getElementById("tablaInventario");
-  tabla.innerHTML = "";
+  const codigos=new Set([
+    ...Object.keys(productos),
+    ...Object.keys(entradas),
+    ...Object.keys(salidas),
+    ...Object.keys(iniciales)
+  ]);
 
-  let porMarca = {};
+  const grupos={};
 
-  Object.keys(productos).forEach(codigo => {
-    const p = productos[codigo];
-    const base = inventarioBase[codigo] || 0;
-    const ent = entradasNuevas[codigo] || 0;
-    const sal = salidasNuevas[codigo] || 0;
-    const existencia = base + ent - sal;
+  codigos.forEach(c=>{
+    const p=productos[c];
+    if(!p) return;
 
-    if (!porMarca[p.marca]) porMarca[p.marca] = [];
+    const ini=iniciales[c]||0;
+    const ent=entradas[c]||0;
+    const sal=salidas[c]||0;
+    const act=ini+ent-sal;
 
-    porMarca[p.marca].push({
-      codigo,
-      descripcion: p.descripcion,
-      base,
-      ent,
-      sal,
-      existencia
-    });
+    if(!grupos[p.marca]) grupos[p.marca]=[];
+    grupos[p.marca].push({c,desc:p.descripcion,ini,ent,sal,act});
   });
 
-  Object.keys(porMarca).sort().forEach(marca => {
-
-    tabla.innerHTML += `
+  Object.keys(grupos).sort().forEach(m=>{
+    t.innerHTML+=`<tr class="marca-row"><td colspan="7">${m}</td></tr>`;
+    grupos[m].forEach(i=>{
+      t.innerHTML+=`
       <tr>
-        <td colspan="8" 
-            style="background:linear-gradient(to right,#00416A,#0c6cbd);color:white;font-size:20px;font-weight:bold;">
-          ${marca}
-        </td>
-      </tr>
-    `;
-
-    porMarca[marca].sort((a,b)=> a.codigo.localeCompare(b.codigo));
-
-    porMarca[marca].forEach(p => {
-
-      tabla.innerHTML += `
-        <tr>
-          <td>${p.codigo}</td>
-          <td>${p.descripcion}</td>
-          <td>${p.base}</td>
-          <td>${p.ent}</td>
-          <td>${p.sal}</td>
-          <td class="${p.existencia < 0 ? "negativo" : "positivo"}">${p.existencia}</td>
-
-          <td>
-            <input type="number"
-                   id="fisico_${p.codigo}"
-                   style="width:80px;padding:5px;"
-                   oninput="calcularDiferencia('${p.codigo}', ${p.existencia})">
-          </td>
-
-          <td id="dif_${p.codigo}" style="font-weight:bold;color:#555;">0</td>
-        </tr>
-      `;
+        <td>${i.c}</td>
+        <td>${i.desc}</td>
+        <td>${i.ini}</td>
+        <td>${i.ent}</td>
+        <td>${i.sal}</td>
+        <td class="${i.act<0?'negativo':'positivo'}">${i.act}</td>
+        <td><input type="number" id="real_${i.c}" placeholder="${i.act}"></td>
+      </tr>`;
     });
-
-    tabla.innerHTML += `<tr><td colspan="8" style="height:8px;background:#eaeaea;"></td></tr>`;
   });
-
 }
 
-// ================================
-// DIFERENCIA
-// ================================
-window.calcularDiferencia = function(codigo, existencia){
-  const fisico = Number(document.getElementById("fisico_"+codigo).value);
-  const celda = document.getElementById("dif_"+codigo);
+// ================= GUARDAR AJUSTES =================
+window.guardarAjustes = async ()=>{
+  const inputs=document.querySelectorAll("input[id^='real_']");
+  let total=0;
 
-  if (isNaN(fisico)) {
-    celda.textContent = "0"; 
-    celda.style.color="#555"; 
-    return;
+  for(const i of inputs){
+    if(i.value==="") continue;
+
+    const c=i.id.replace("real_","");
+    const fisico=Number(i.value);
+    if(isNaN(fisico)) continue;
+
+    const ent=entradas[c]||0;
+    const sal=salidas[c]||0;
+
+    // 🔑 ESTA ES LA CLAVE
+    const nuevoInicial = fisico - ent + sal;
+
+    await setDoc(
+      doc(db,"almacenes/almacen_cigarro/inventario_base",c),
+      {
+        existencia:nuevoInicial,
+        actualizadoEn:new Date(),
+        motivo:"AJUSTE_MANUAL"
+      }
+    );
+
+    total++;
   }
 
-  const dif = fisico - existencia;
-  celda.textContent = dif;
-
-  celda.style.color = dif > 0 ? "green" : dif < 0 ? "red" : "#555";
+  alert(total===0
+    ? "No se realizaron ajustes"
+    : "Ajustes aplicados correctamente"
+  );
 };
-
-// ================================
-// GUARDAR AJUSTES (CORREGIDO)
-// - dif>0 => ENTRADA (entradas/items/cantidadTotal)
-// - dif<0 => SALIDA (salidas1.0/productos/cantidad)
-// ================================
-async function guardarAjustesInventario(){
-
-  const movimientosEntrada = [];
-  const movimientosSalida = [];
-  const nuevosBases = {};
-
-  Object.keys(productos).forEach(codigo => {
-
-    const base = inventarioBase[codigo] || 0;
-    const ent = entradasNuevas[codigo] || 0;
-    const sal = salidasNuevas[codigo] || 0;
-    const existencia = base + ent - sal;
-
-    const fisInputEl = document.getElementById("fisico_"+codigo);
-    const fisInput = fisInputEl?.value;
-
-    if (fisInput === "" || fisInput === null || fisInput === undefined) return;
-
-    const fis = Number(fisInput);
-    if (isNaN(fis)) return;
-
-    const dif = fis - existencia;
-    if (dif === 0) return;
-
-    if (dif > 0) {
-      movimientosEntrada.push({
-        productoId: codigo,
-        descripcion: productos[codigo].descripcion,
-        marca: productos[codigo].marca,
-        cantidadTotal: dif,
-        tipoMovimiento: "ENTRADA_AJUSTE"
-      });
-    } else {
-      movimientosSalida.push({
-        codigo: codigo,
-        descripcion: productos[codigo].descripcion,
-        marca: productos[codigo].marca,
-        cantidad: Math.abs(dif),
-        tipoMovimiento: "SALIDA_AJUSTE"
-      });
-    }
-
-    nuevosBases[codigo] = fis;
-  });
-
-  if (movimientosEntrada.length === 0 && movimientosSalida.length === 0){
-    alert("No hay ajustes por aplicar."); 
-    return;
-  }
-
-  const fecha = new Date();
-
-  // Guardar entradas ajuste (si hay)
-  if (movimientosEntrada.length > 0) {
-    await addDoc(collection(db, "almacenes/almacen_cigarro/entradas"), {
-      tipo: "AJUSTE",
-      fecha,
-      items: movimientosEntrada
-    });
-  }
-
-  // Guardar salidas ajuste (si hay)
-  if (movimientosSalida.length > 0) {
-    await addDoc(collection(db, "almacenes/almacen_cigarro/salidas1.0"), {
-      tipo: "AJUSTE",
-      fecha,
-      timestamp: fecha,
-      productos: movimientosSalida
-    });
-  }
-
-  // Actualizar inventario_base
-  for (const codigo of Object.keys(nuevosBases)){
-    await setDoc(
-      doc(db, "almacenes/almacen_cigarro/inventario_base", codigo),
-      {
-        existencia: nuevosBases[codigo],
-        descripcion: productos[codigo].descripcion,
-        marca: productos[codigo].marca,
-        actualizadoEn: fecha
-      }
-    );
-    // actualizar memoria para que el UI refleje en caliente (sin recargar)
-    inventarioBase[codigo] = nuevosBases[codigo];
-  }
-
-  // limpiar inputs capturados
-  Object.keys(nuevosBases).forEach(codigo => {
-    const inp = document.getElementById("fisico_"+codigo);
-    const difTd = document.getElementById("dif_"+codigo);
-    if (inp) inp.value = "";
-    if (difTd) { difTd.textContent = "0"; difTd.style.color = "#555"; }
-  });
-
-  // Redibujar (entradas/salidas se actualizarán por onSnapshot)
-  dibujar();
-
-  alert("✔ Ajuste registrado correctamente.");
-}
-
-// ================================
-// INICIALIZAR INVENTARIO BASE
-// ================================
-async function inicializarInventarioBase() {
-
-  if (!confirm("¿Seguro que deseas crear el inventario base inicial?\nSOLO se ejecuta UNA VEZ.")) {
-    return;
-  }
-
-  const fecha = new Date();
-  let totalGuardados = 0;
-
-  for (const codigo of Object.keys(productos)) {
-
-    const baseActual = inventarioBase[codigo] || 0;
-    const entradas = entradasNuevas[codigo] || 0;
-    const salidas  = salidasNuevas[codigo] || 0;
-
-    const existencia = baseActual + entradas - salidas;
-
-    await setDoc(
-      doc(db, "almacenes/almacen_cigarro/inventario_base", codigo),
-      {
-        existencia,
-        descripcion: productos[codigo].descripcion,
-        marca: productos[codigo].marca,
-        actualizadoEn: fecha
-      }
-    );
-
-    inventarioBase[codigo] = existencia;
-    totalGuardados++;
-  }
-
-  dibujar();
-  alert("✔ Inventario base creado para " + totalGuardados + " productos.");
-}
-
-// ================================
-// EVENTOS
-// ================================
-document.getElementById("btnGuardarAjustes")
-  .addEventListener("click", guardarAjustesInventario);
-
-document.getElementById("btnInicializarBase")
-  .addEventListener("click", inicializarInventarioBase);
-
-// ================================
-// EJECUTAR
-// ================================
-await cargarProductosCigarro();
-await cargarBase();
-cargarEntradas();
-cargarSalidas();
-
 </script>
 
 </body>
